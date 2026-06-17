@@ -1,0 +1,23 @@
+[project]
+name = "math-assistant"
+version = "0.1.0"
+description = "AI-powered mathematics teacher agent built with LangChain"
+requires-python = ">=3.11"
+dependencies = [
+    "langchain>=1.0",
+    "langchain-openai>=1.0",
+    "sympy>=1.12",
+    "numpy>=1.26",
+    "matplotlib>=3.8",
+    "duckduckgo-search>=7.0",
+    "pyyaml>=6.0",
+    "rich>=13.0",
+    "pydantic>=2.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.backends._legacy:_Backend"

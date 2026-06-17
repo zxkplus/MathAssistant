@@ -1,0 +1,20 @@
+model:
+  provider: deepseek
+  name: deepseek-chat
+  temperature: 0.0
+
+api:
+  base_url: "https://api.deepseek.com"
+  # api_key is read from environment variable (DEEPSEEK_API_KEY, MATH_ASSISTANT_API_KEY, or OPENAI_API_KEY)
+
+search:
+  provider: duckduckgo
+
+python_executor:
+  timeout_seconds: 30
+
+agent:
+  max_tool_calls: 20
+
+output:
+  image_dir: "./images"
