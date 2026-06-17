@@ -5,7 +5,11 @@ model:
 
 api:
   base_url: "https://api.deepseek.com"
-  # api_key is read from environment variable (DEEPSEEK_API_KEY, MATH_ASSISTANT_API_KEY, or OPENAI_API_KEY)
+  # api_key: set in config.local.yaml (gitignored) or via environment variable
+  # (DEEPSEEK_API_KEY / MATH_ASSISTANT_API_KEY / OPENAI_API_KEY)
+  # Create config.local.yaml next to this file:
+  #   api:
+  #     api_key: "sk-xxx"
 
 search:
   provider: duckduckgo

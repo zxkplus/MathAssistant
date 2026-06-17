@@ -1,7 +1,9 @@
 """Configuration management for MathAssistant.
 
-Loads config from config.yaml, then overrides with environment variables.
-Environment variables take precedence over YAML values.
+Layered loading (later sources override earlier ones):
+  1. config.yaml          — shared, committed settings
+  2. config.local.yaml    — gitignored, for secrets (API key)
+  3. environment variables — highest precedence (MATH_ASSISTANT_*)
 """
 
 import os
@@ -64,26 +66,40 @@ class Config(BaseModel):
             project_root = this_file.parent.parent.parent
             config_path = str(project_root / "config.yaml")
 
-        # Start with YAML
+        config_path_obj = Path(config_path).resolve()
+        config_dir = config_path_obj.parent
+        config_name = config_path_obj.stem  # e.g. "config"
+
+        # Layer 1: main config file (config.yaml)
         yaml_data = {}
-        if Path(config_path).exists():
-            with open(config_path, "r") as f:
+        if config_path_obj.exists():
+            with open(config_path_obj, "r", encoding="utf-8") as f:
                 yaml_data = yaml.safe_load(f) or {}
 
-        # Merge YAML data into config dict
+        # Layer 2: local override file (config.local.yaml) — gitignored, for secrets
+        local_path = config_dir / f"{config_name}.local.yaml"
+        local_data = {}
+        if local_path.exists():
+            with open(local_path, "r", encoding="utf-8") as f:
+                local_data = yaml.safe_load(f) or {}
+
+        def _deep_merge(base: dict, override: dict) -> dict:
+            """Recursively merge override into base dict."""
+            for key, value in override.items():
+                if key in base and isinstance(base[key], dict) and isinstance(value, dict):
+                    _deep_merge(base[key], value)
+                else:
+                    base[key] = value
+            return base
+
+        # Merge layers
+        config_data = _deep_merge(yaml_data, local_data)
+
+        # Extract sections into config_dict
         config_dict = {}
-        if "model" in yaml_data:
-            config_dict["model"] = yaml_data["model"]
-        if "api" in yaml_data:
-            config_dict["api"] = yaml_data["api"]
-        if "search" in yaml_data:
-            config_dict["search"] = yaml_data["search"]
-        if "python_executor" in yaml_data:
-            config_dict["python_executor"] = yaml_data["python_executor"]
-        if "agent" in yaml_data:
-            config_dict["agent"] = yaml_data["agent"]
-        if "output" in yaml_data:
-            config_dict["output"] = yaml_data["output"]
+        for section in ("model", "api", "search", "python_executor", "agent", "output"):
+            if section in config_data:
+                config_dict[section] = config_data[section]
 
         # Override with environment variables
         env_overrides = {
@@ -129,6 +145,8 @@ class Config(BaseModel):
         if self.api.api_key:
             return self.api.api_key
         raise ValueError(
-            "API key not configured. Set DEEPSEEK_API_KEY, MATH_ASSISTANT_API_KEY, "
-            "or OPENAI_API_KEY environment variable."
+            "API key not configured. Set it in config.local.yaml:\n"
+            "  api:\n"
+            "    api_key: \"sk-xxx\"\n"
+            "Or via environment variable: DEEPSEEK_API_KEY / MATH_ASSISTANT_API_KEY / OPENAI_API_KEY"
         )

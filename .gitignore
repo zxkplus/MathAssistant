@@ -24,3 +24,8 @@ Thumbs.db
 # Environment
 .env
 .env.local
+
+# Local config (contains secrets like API keys)
+config.local.yaml
+*.local.yaml
+src\math_assistant\__pycache__

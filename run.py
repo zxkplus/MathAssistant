@@ -13,6 +13,10 @@ Or set DEEPSEEK_API_KEY environment variable first:
 import sys
 import os
 
+# Force UTF-8 output on Windows (required for emoji rendering in Rich)
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8")
+
 # Add src to Python path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
