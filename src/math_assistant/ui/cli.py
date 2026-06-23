@@ -72,6 +72,45 @@ class CLIUI(AbstractUI):
             )
         )
 
+    def display_step(self, node_name: str, step_number: int) -> None:
+        """Show which step the agent is on (model call or tool execution)."""
+        emoji = "🤖" if node_name == "model" else "🔧"
+        label = "Model" if node_name == "model" else "Tools"
+        self.console.print(f"\n[dim]Step {step_number}: {emoji} {label} ({node_name})[/dim]")
+
+    def display_tool_calls(self, tool_calls: list[dict[str, Any]]) -> None:
+        """Display tool calls that the model has requested."""
+        for tc in tool_calls:
+            tool_name = tc.get("name", "unknown")
+            args = tc.get("args", {})
+            if tool_name == "execute_python":
+                code = args.get("code", "")
+                preview = code[:150] + "..." if len(code) > 150 else code
+                self.console.print(
+                    Panel(
+                        preview,
+                        title=f"[bold cyan]⚙ Python[/bold cyan]",
+                        border_style="cyan",
+                    )
+                )
+            elif tool_name == "web_search":
+                query = args.get("query", "")
+                self.console.print(
+                    Panel(
+                        f"Searching: [italic]{query}[/italic]",
+                        title=f"[bold green]🔍 Search[/bold green]",
+                        border_style="green",
+                    )
+                )
+            else:
+                self.console.print(
+                    Panel(
+                        json.dumps(args, ensure_ascii=False, indent=2),
+                        title=f"[bold yellow]🔧 {tool_name}[/bold yellow]",
+                        border_style="yellow",
+                    )
+                )
+
     def display_error(self, message: str) -> None:
         self.console.print(f"\n[bold red]Error:[/bold red] {message}\n")
 

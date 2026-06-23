@@ -32,6 +32,16 @@ class AbstractUI(ABC):
         ...
 
     @abstractmethod
+    def display_step(self, node_name: str, step_number: int) -> None:
+        """Display the current execution step."""
+        ...
+
+    @abstractmethod
+    def display_tool_calls(self, tool_calls: list[dict[str, Any]]) -> None:
+        """Display pending tool calls from an AI message."""
+        ...
+
+    @abstractmethod
     def display_error(self, message: str) -> None:
         """Display an error message."""
         ...
