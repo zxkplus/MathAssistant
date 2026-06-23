@@ -4,8 +4,10 @@ Executes Python code in a subprocess with timeout protection.
 Provides a sandboxed environment for sympy, numpy, and matplotlib.
 """
 
+import ast
 import os
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -40,6 +42,22 @@ from sympy import symbols, Eq, solve, diff, integrate, limit, simplify, expand, 
 
 def _build_execution_script(code: str, image_dir: str) -> str:
     """Build the full Python script with prologue and image directory setup."""
+    # Auto-print: if the last statement is a bare expression (like `solutions`
+    # or `x**2`), wrap it with print() so the tool returns visible output.
+    try:
+        tree = ast.parse(code)
+        if tree.body and isinstance(tree.body[-1], ast.Expr):
+            # Extract the expression and replace with a print call
+            last_expr = tree.body[-1]
+            # Use ast.unparse (Python 3.9+) to get the expression source
+            expr_src = ast.unparse(last_expr.value)
+            # Replace the last line: remove the original expression line
+            lines = code.rstrip().split("\n")
+            lines[-1] = f"print({expr_src})"
+            code = "\n".join(lines)
+    except SyntaxError:
+        pass  # Let the subprocess report the syntax error naturally
+
     # Use a placeholder that won't conflict with user code
     _PLACEHOLDER = "___IMAGE_DIR___"
     setup_lines = [
@@ -74,7 +92,7 @@ def execute_python(code: str, image_dir: str = "./images", timeout_seconds: int 
 
     try:
         result = subprocess.run(
-            ["python3", script_path],
+            [sys.executable, script_path],
             capture_output=True,
             text=True,
             timeout=timeout_seconds,
@@ -88,9 +106,13 @@ def execute_python(code: str, image_dir: str = "./images", timeout_seconds: int 
             output_parts.append(stdout)
         if stderr:
             output_parts.append(f"[stderr]:\n{stderr}")
+        if result.returncode != 0:
+            output_parts.append(f"[exit code: {result.returncode}]")
 
         output = "\n".join(output_parts) if output_parts else "(no output)"
         return output
+    except FileNotFoundError:
+        return f"Error: Python executable not found at '{sys.executable}'. Check your environment."
     except subprocess.TimeoutExpired:
         return f"Execution timed out after {timeout_seconds} seconds. Simplify your code or break it into smaller steps."
     finally:
