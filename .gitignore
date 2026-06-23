@@ -5,6 +5,8 @@ __pycache__/
 dist/
 build/
 *.egg
+*.pyc
+*.png
 
 # IDE / Editor
 .vscode/
