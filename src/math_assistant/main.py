@@ -85,37 +85,49 @@ def run_repl(agent, ui: AbstractUI, config: Config) -> None:
         # Process the message
         try:
             ui.display_thinking()
-
-            result = agent.invoke(
+            # Use stream_mode="updates" to see each step in real time
+            step_count = 0
+            for chunk in agent.stream(
                 {"messages": [HumanMessage(content=user_input)]},
                 config=graph_config,
-            )
+                stream_mode="updates",
+            ):
+                # chunk is a dict: {node_name: state_update}
+                for node_name, state_update in chunk.items():
+                    # Skip internal middleware nodes (only show "model" and "tools")
+                    if node_name not in ("model", "tools"):
+                        continue
 
-            # Extract and display assistant messages and tool calls
-            messages = result.get("messages", [])
-            # Only show messages from this turn (skip earlier history)
-            for msg in messages:
-                type_name = type(msg).__name__
+                    step_count += 1
+                    messages = state_update.get("messages", [])
 
-                if type_name == "AIMessage":
-                    if msg.content:
-                        # Skip empty AIMessages (tool_call-only messages)
-                        if isinstance(msg.content, str) and msg.content.strip():
-                            ui.display_assistant_message(msg.content)
-                        elif isinstance(msg.content, list):
-                            # Handle structured content blocks
-                            texts = []
-                            for block in msg.content:
-                                if isinstance(block, dict) and block.get("type") == "text":
-                                    texts.append(block.get("text", ""))
-                            if texts:
-                                ui.display_assistant_message("\n".join(texts))
+                    # Display step indicator
+                    ui.display_step(node_name, step_count)
 
-                elif type_name == "ToolMessage":
-                    ui.display_tool_result(
-                        tool_name=msg.name or "unknown",
-                        result=str(msg.content),
-                    )
+                    for msg in messages:
+                        type_name = type(msg).__name__
+
+                        if type_name == "AIMessage":
+                            if msg.content:
+                                if isinstance(msg.content, str) and msg.content.strip():
+                                    # Skip tool-call-only messages (content is empty or just a list)
+                                    ui.display_assistant_message(msg.content)
+                                elif isinstance(msg.content, list):
+                                    texts = []
+                                    for block in msg.content:
+                                        if isinstance(block, dict) and block.get("type") == "text":
+                                            texts.append(block.get("text", ""))
+                                    if texts:
+                                        ui.display_assistant_message("\n".join(texts))
+                                # Show tool calls if any
+                                if hasattr(msg, "tool_calls") and msg.tool_calls:
+                                    ui.display_tool_calls(msg.tool_calls)
+
+                        elif type_name == "ToolMessage":
+                            ui.display_tool_result(
+                                tool_name=msg.name or "unknown",
+                                result=str(msg.content),
+                            )
 
         except Exception as e:
             ui.display_error(str(e))
