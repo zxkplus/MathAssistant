@@ -15,7 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from .recorder import Session, Turn, ToolCallRecord
+from .recorder import QuestionGroup, Session, Turn, ToolCallRecord
 
 
 # ---------------------------------------------------------------------------
@@ -61,6 +61,29 @@ class MarkdownExporter:
         path = self.output_dir / filename
 
         content = self._render_single_turn(turn, session)
+        path.write_text(content, encoding="utf-8")
+        return path
+
+    def export_question_group(
+        self,
+        group: QuestionGroup,
+        session: Session,
+        overwrite: bool = True,
+    ) -> Path:
+        """Export a single question group to a .md file.
+
+        If *overwrite* is True (default), uses a stable filename based on
+        ``group.group_id`` so that follow-up turns overwrite the same file.
+        Otherwise appends a timestamp for a unique file each time.
+
+        Returns the output Path.
+        """
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+        filename = self._group_filename(group, overwrite=overwrite)
+        path = self.output_dir / filename
+
+        content = self._render_group(group, session)
         path.write_text(content, encoding="utf-8")
         return path
 
@@ -247,6 +270,72 @@ class MarkdownExporter:
         # snake_case → Title Case
         return name.replace("_", " ").title()
 
+    # ------------------------------------------------------------------
+    # Question group helpers
+    # ------------------------------------------------------------------
+
+    def _render_group(self, group: QuestionGroup, session: Session) -> str:
+        """Render a question group as a complete .md document."""
+        parts: list[str] = []
+
+        # Frontmatter
+        parts.append("---")
+        parts.append(f"title: \"{self._escape_yaml(group.title)}\"")
+        parts.append(f"date: {group.created_at.isoformat()}")
+        parts.append(f"group_id: {group.group_id}")
+        parts.append(f"session_id: {session.session_id}")
+        parts.append(f"model: {session.model}")
+        parts.append(f"turns: {len(group.turns)}")
+        parts.append(f"updated: {group.updated_at.isoformat()}")
+        parts.append("---")
+        parts.append("")
+
+        # Header
+        parts.append(f"# 🧮 {group.title}")
+        parts.append("")
+        parts.append(f"**Group ID**: `{group.group_id}`  ")
+        parts.append(f"**会话 ID**: `{session.session_id}`  ")
+        parts.append(f"**创建**: {group.created_at.strftime('%Y-%m-%d %H:%M')}  ")
+        parts.append(f"**更新**: {group.updated_at.strftime('%Y-%m-%d %H:%M')}  ")
+        parts.append(f"**对话轮数**: {len(group.turns)}")
+        parts.append("")
+        parts.append("---")
+        parts.append("")
+
+        # Each turn (re-numbered within the group)
+        for i, turn in enumerate(group.turns, 1):
+            # Temporarily adjust question_number for rendering
+            original_number = turn.question_number
+            turn.question_number = i
+            parts.append(self._render_turn(turn))
+            parts.append("")
+            turn.question_number = original_number
+
+        # Footer
+        parts.append("---")
+        parts.append("")
+        parts.append(
+            f"*由 [MathAssistant](https://github.com) 自动生成 — "
+            f"{group.updated_at.strftime('%Y-%m-%d %H:%M')}*"
+        )
+        parts.append("")
+
+        return "\n".join(parts)
+
+    @staticmethod
+    def _group_filename(group: QuestionGroup, overwrite: bool = True) -> str:
+        """Generate a filename for a question group export.
+
+        When *overwrite* is True the filename is ``{group_id}-{slug}.md``,
+        stable across updates so the same file is rewritten.
+        When False a timestamp is prepended for archive-style exports.
+        """
+        slug = MarkdownExporter._slugify(group.title[:60]) or "math"
+        if overwrite:
+            return f"{group.group_id}-{slug}.md"
+        ts = group.created_at.strftime("%Y%m%d-%H%M%S")
+        return f"group-{ts}-{slug}.md"
+
 
 # ---------------------------------------------------------------------------
 # HTML Exporter
@@ -305,6 +394,28 @@ class HTMLExporter:
         path.write_text(html, encoding="utf-8")
         return path
 
+    def export_question_group(
+        self,
+        group: QuestionGroup,
+        session: Session,
+        overwrite: bool = True,
+    ) -> Path:
+        """Export a single question group as a self-contained .html file.
+
+        If *overwrite* is True (default), uses a stable filename based on
+        ``group.group_id`` so that follow-up turns overwrite the same file.
+
+        Returns the output Path.
+        """
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+        filename = self._group_filename(group, overwrite=overwrite)
+        path = self.output_dir / filename
+
+        html = self._render_group(group, session)
+        path.write_text(html, encoding="utf-8")
+        return path
+
     # ------------------------------------------------------------------
     # Render
     # ------------------------------------------------------------------
@@ -345,6 +456,69 @@ class HTMLExporter:
         parts.append('</footer>')
 
         return "\n".join(parts)
+
+    def _render_group(self, group: QuestionGroup, session: Session) -> str:
+        """Render a question group as a complete HTML document."""
+        parts: list[str] = []
+
+        # Header
+        parts.append('<header class="session-header">')
+        parts.append(f'<h1>🧮 {self._escape(group.title)}</h1>')
+        parts.append('<div class="meta">')
+        parts.append(
+            f'<span>Group ID <code>{group.group_id}</code></span>'
+        )
+        parts.append(
+            f'<span>会话 ID <code>{session.session_id}</code></span>'
+        )
+        parts.append(
+            f'<span>创建 {group.created_at.strftime("%Y-%m-%d %H:%M")}</span>'
+        )
+        parts.append(
+            f'<span>更新 {group.updated_at.strftime("%Y-%m-%d %H:%M")}</span>'
+        )
+        parts.append(f'<span>{len(group.turns)} 轮对话</span>')
+        parts.append('</div>')
+        parts.append('</header>')
+
+        # Re-number turns within the group for display
+        for i, turn in enumerate(group.turns, 1):
+            original_number = turn.question_number
+            turn.question_number = i
+            parts.append(self._render_turn(turn))
+            turn.question_number = original_number
+
+        # Footer
+        parts.append('<footer class="session-footer">')
+        parts.append(
+            f'<p>由 MathAssistant 自动生成 — '
+            f'{group.updated_at.strftime("%Y-%m-%d %H:%M")}</p>'
+        )
+        parts.append('</footer>')
+
+        body = "\n".join(parts)
+        return self._html_shell_for_group(group, body)
+
+    def _html_shell_for_group(self, group: QuestionGroup, body: str) -> str:
+        """Wrap body in a complete HTML document, keyed to a question group."""
+        return (
+            '<!DOCTYPE html>\n'
+            '<html lang="zh-CN">\n'
+            '<head>\n'
+            '<meta charset="utf-8">\n'
+            '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
+            f'<title>{self._escape(group.title)} — MathAssistant</title>\n'
+            f'{self._katex_head()}\n'
+            f'{self._css()}\n'
+            '</head>\n'
+            '<body>\n'
+            '<main class="container">\n'
+            f'{body}\n'
+            '</main>\n'
+            f'{self._katex_script()}\n'
+            '</body>\n'
+            '</html>'
+        )
 
     def _render_turn(self, turn: Turn) -> str:
         lines: list[str] = []
@@ -842,6 +1016,15 @@ class HTMLExporter:
         ts = session.created_at.strftime("%Y%m%d-%H%M%S")
         slug = MarkdownExporter._slugify(session.title[:60])
         return f"session-{ts}-{slug}.html"
+
+    @staticmethod
+    def _group_filename(group: QuestionGroup, overwrite: bool = True) -> str:
+        """Generate a filename for a question group HTML export."""
+        slug = MarkdownExporter._slugify(group.title[:60]) or "math"
+        if overwrite:
+            return f"{group.group_id}-{slug}.html"
+        ts = group.created_at.strftime("%Y%m%d-%H%M%S")
+        return f"group-{ts}-{slug}.html"
 
     @staticmethod
     def _safe_id(text: str) -> str:
