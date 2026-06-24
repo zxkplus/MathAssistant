@@ -2,23 +2,30 @@
 
 from datetime import datetime, timedelta, timezone
 
+import bcrypt
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 
 from math_assistant.server.config import AuthConfig
 
-# bcrypt with 12 rounds
-_pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# bcrypt rounds — 12 provides a good balance of security and performance
+_BCRYPT_ROUNDS = 12
 
 
 def hash_password(plain: str) -> str:
-    """Hash a plain-text password with bcrypt."""
-    return _pwd_context.hash(plain)
+    """Hash a plain-text password with bcrypt.
+
+    bcrypt has a 72-byte limit on password length. Longer passwords
+    are truncated to 72 bytes before hashing.
+    """
+    password_bytes = plain.encode("utf-8")[:72]
+    salt = bcrypt.gensalt(rounds=_BCRYPT_ROUNDS)
+    return bcrypt.hashpw(password_bytes, salt).decode("utf-8")
 
 
 def verify_password(plain: str, hashed: str) -> bool:
     """Verify a plain-text password against a bcrypt hash."""
-    return _pwd_context.verify(plain, hashed)
+    password_bytes = plain.encode("utf-8")[:72]
+    return bcrypt.checkpw(password_bytes, hashed.encode("utf-8"))
 
 
 def create_access_token(
