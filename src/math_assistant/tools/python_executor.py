@@ -41,6 +41,22 @@ import matplotlib.pyplot as plt
 import math
 import json
 from sympy import symbols, Eq, solve, diff, integrate, limit, simplify, expand, factor, Matrix, sin, cos, tan, log, exp, sqrt, pi, oo
+
+# --- CJK font setup for Chinese text in charts ---
+_cjk_candidates = [
+    'WenQuanYi Micro Hei', 'WenQuanYi Zen Hei',
+    'Noto Sans CJK SC', 'Noto Sans CJK JP', 'Noto Sans SC',
+    'SimHei', 'Microsoft YaHei',
+    'AR PL UMing CN', 'AR PL UKai CN',
+    'Source Han Sans SC', 'Source Han Sans CN',
+    'Droid Sans Fallback',
+]
+_available = {f.name for f in matplotlib.font_manager.fontManager.ttflist}
+_cjk_font = next((f for f in _cjk_candidates if f in _available), None)
+if _cjk_font:
+    matplotlib.rcParams['font.family'] = _cjk_font
+    # Prevent minus sign from rendering as a box
+    matplotlib.rcParams['axes.unicode_minus'] = False
 # User code starts below
 """
 
