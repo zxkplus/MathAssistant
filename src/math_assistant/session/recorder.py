@@ -46,6 +46,28 @@ class Turn:
 
 
 @dataclass
+class QuestionGroup:
+    """Turns grouped by a single math problem (including follow-ups)."""
+
+    group_id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
+    topic: str = ""  # first question text, used for slug generation
+    turns: list[Turn] = field(default_factory=list)
+    created_at: datetime = field(default_factory=datetime.now)
+    updated_at: datetime = field(default_factory=datetime.now)
+
+    @property
+    def title(self) -> str:
+        """Derive a title from the first question."""
+        if self.topic.strip():
+            q = self.topic.strip()
+            return q[:80] + ("…" if len(q) > 80 else "")
+        if self.turns:
+            q = self.turns[0].question.strip()
+            return q[:80] + ("…" if len(q) > 80 else "")
+        return "MathAssistant Question"
+
+
+@dataclass
 class Session:
     """A complete conversation session with metadata."""
 
@@ -53,6 +75,7 @@ class Session:
     model: str = ""
     turns: list[Turn] = field(default_factory=list)
     created_at: datetime = field(default_factory=datetime.now)
+    question_groups: list[QuestionGroup] = field(default_factory=list)
 
     @property
     def question_count(self) -> int:
@@ -105,6 +128,7 @@ class SessionRecorder:
         self._current_turn: Turn | None = None
         self._text_parts: list[str] = []
         self._pending_tool_calls: list[ToolCallRecord] = []
+        self._current_group: QuestionGroup | None = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -196,6 +220,27 @@ class SessionRecorder:
         return images
 
     # ------------------------------------------------------------------
+    # Question groups
+    # ------------------------------------------------------------------
+
+    def start_question_group(self, topic: str) -> str:
+        """Begin a new question group. Returns the group_id."""
+        group = QuestionGroup(topic=topic)
+        self._current_group = group
+        self._session.question_groups.append(group)
+        return group.group_id
+
+    def add_turn_to_current_group(self, turn: Turn) -> None:
+        """Add a completed turn to the current question group."""
+        if self._current_group is not None:
+            self._current_group.turns.append(turn)
+            self._current_group.updated_at = datetime.now()
+
+    def get_current_group(self) -> QuestionGroup | None:
+        """Return the current question group, or None."""
+        return self._current_group
+
+    # ------------------------------------------------------------------
     # Convenience
     # ------------------------------------------------------------------
 
@@ -205,3 +250,4 @@ class SessionRecorder:
         self._current_turn = None
         self._text_parts = []
         self._pending_tool_calls = []
+        self._current_group = None

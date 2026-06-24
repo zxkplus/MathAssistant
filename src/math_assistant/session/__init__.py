@@ -6,10 +6,11 @@ Provides:
 - HTMLExporter: exports self-contained .html with KaTeX + base64 images
 """
 
-from .recorder import Session, Turn, SessionRecorder
+from .recorder import QuestionGroup, Session, Turn, SessionRecorder
 from .exporter import MarkdownExporter, HTMLExporter
 
 __all__ = [
+    "QuestionGroup",
     "Session",
     "Turn",
     "SessionRecorder",
