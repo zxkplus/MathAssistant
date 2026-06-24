@@ -5,15 +5,20 @@ Reuses the same DeepSeek LLM configuration as the main agent.
 """
 
 import difflib
+import json
+import logging
+import re
 import time
 from typing import Optional
 
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.orm import Session
 
 from math_assistant.server.models.knowledge_point import KnowledgePoint
 from math_assistant.server.models.question_tag import QuestionTag
+
+logger = logging.getLogger(__name__)
 
 # Cache for the KP taxonomy (name -> KP mapping), refreshed every 5 minutes
 _taxonomy_cache: Optional[dict[str, list[dict]]] = None
@@ -86,7 +91,22 @@ The student's question is:
 
 {question_text}
 
-Return a list of relevant knowledge points. Use the exact full_path from the taxonomy. Include at most 5 knowledge points, ordered by relevance. Set confidence based on how clearly the question maps to the topic (1.0 = perfect match, 0.5 = somewhat related).
+Return the result as a JSON object with this exact structure:
+```json
+{{
+  "tags": [
+    {{
+      "knowledge_point_path": "Exact full_path from taxonomy, e.g. Calculus > Derivatives",
+      "confidence": 0.95,
+      "reasoning": "Brief explanation of why this knowledge point applies"
+    }}
+  ]
+}}
+```
+
+Include at most 5 knowledge points, ordered by relevance. Use the exact full_path from the taxonomy. Set confidence based on how clearly the question maps to the topic (1.0 = perfect match, 0.5 = somewhat related).
+
+Return ONLY the JSON object. Do not wrap it in markdown code fences or add any other text.
 """
 
 
@@ -167,10 +187,28 @@ def auto_tag_question(question_id: int, db: Session):
             temperature=0.0,
         )
 
-        structured_llm = llm.with_structured_output(TaggingResult)
         prompt = _build_tagging_prompt(question.content, taxonomy)
 
-        result: TaggingResult = structured_llm.invoke(prompt)
+        # Use regular invoke + JSON parsing instead of with_structured_output
+        # because DeepSeek's API does not support the response_format parameter
+        response = llm.invoke(prompt)
+        content = response.content if hasattr(response, 'content') else str(response)
+
+        # Strip markdown code fences if present
+        content = content.strip()
+        if content.startswith("```"):
+            # Remove opening fence (```json or ```)
+            content = re.sub(r"^```(?:json)?\s*\n?", "", content)
+            # Remove closing fence
+            content = re.sub(r"\n?```\s*$", "", content)
+
+        # Extract JSON object
+        json_match = re.search(r'\{[\s\S]*\}', content)
+        if not json_match:
+            raise ValueError(f"No JSON object found in LLM response: {content[:200]}")
+
+        parsed = json.loads(json_match.group(0))
+        result = TaggingResult(**parsed)
 
         # Match LLM results to taxonomy and create tags
         for candidate in result.tags:
@@ -201,10 +239,14 @@ def auto_tag_question(question_id: int, db: Session):
 
         db.commit()
 
+    except (json.JSONDecodeError, ValidationError, ValueError) as e:
+        logger.warning(
+            f"Auto-tagging failed for question {question_id} "
+            f"(LLM response parsing error): {e}"
+        )
+        db.rollback()
     except Exception as e:
-        # Log the error but don't crash the request
-        import logging
-        logging.getLogger(__name__).warning(
+        logger.warning(
             f"Auto-tagging failed for question {question_id}: {e}"
         )
         db.rollback()
