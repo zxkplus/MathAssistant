@@ -22,3 +22,8 @@ agent:
 
 output:
   image_dir: "./images"
+  # Save mode: "session" (at exit), "turn" (each Q&A), "manual" (on :save command)
+  save_mode: "session"
+  save_dir: "./sessions"
+  html_export: true     # also produce self-contained .html
+  embed_images: true    # base64-encode images into HTML

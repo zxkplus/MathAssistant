@@ -42,6 +42,10 @@ class ApiConfig(BaseModel):
 
 class OutputConfig(BaseModel):
     image_dir: str = "./images"
+    save_mode: Literal["session", "turn", "manual"] = "session"
+    save_dir: str = "./sessions"
+    html_export: bool = True
+    embed_images: bool = True
 
 
 class Config(BaseModel):
@@ -113,6 +117,10 @@ class Config(BaseModel):
             "MATH_ASSISTANT_PYTHON_TIMEOUT": "python_executor.timeout_seconds",
             "MATH_ASSISTANT_MAX_TOOL_CALLS": "agent.max_tool_calls",
             "MATH_ASSISTANT_IMAGE_DIR": "output.image_dir",
+            "MATH_ASSISTANT_SAVE_MODE": "output.save_mode",
+            "MATH_ASSISTANT_SAVE_DIR": "output.save_dir",
+            "MATH_ASSISTANT_HTML_EXPORT": "output.html_export",
+            "MATH_ASSISTANT_EMBED_IMAGES": "output.embed_images",
         }
 
         def _set_nested(d: dict, key_path: str, value: str):
@@ -124,7 +132,9 @@ class Config(BaseModel):
             # Type conversion
             target_key = keys[-1]
             existing = d.get(target_key)
-            if isinstance(existing, bool) or target_key == "temperature":
+            if isinstance(existing, bool):
+                d[target_key] = value.lower() in ("true", "1", "yes")
+            elif isinstance(existing, float) or target_key == "temperature":
                 d[target_key] = float(value)
             elif isinstance(existing, int):
                 d[target_key] = int(value)
