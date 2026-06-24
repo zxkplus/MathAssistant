@@ -1,6 +1,6 @@
 # 🧮 MathAssistant — AI-Powered Mathematics Teacher
 
-MathAssistant 是一个由大语言模型驱动的智能数学教学系统，包含 **CLI 交互式学习助手** 和 **后端用户管理系统** 两个核心组件。它能够解答数学问题、绘制函数图表、自动标注知识点，并追踪每位学习者的学力成长轨迹。
+MathAssistant 是一个由大语言模型驱动的智能数学教学系统，提供 **CLI 终端助手**、**Web 聊天界面** 和 **后端用户管理系统** 三种交互方式。它能够解答数学问题、绘制函数图表、自动标注知识点，并追踪每位学习者的学力成长轨迹。
 
 ---
 
@@ -14,8 +14,12 @@ MathAssistant 是一个由大语言模型驱动的智能数学教学系统，包
   - [基础用法](#基础用法)
   - [REPL 命令](#repl-命令)
   - [工具说明](#工具说明)
+- [Web 前端界面](#web-前端界面)
+  - [启动方式](#启动方式)
+  - [页面功能](#页面功能)
+  - [交互流程](#交互流程)
 - [用户管理后端](#用户管理后端)
-  - [启动服务](#启动服务)
+  - [启动服务](#启动服务-1)
   - [知识体系导航](#知识体系导航)
   - [自动标注与学力追踪](#自动标注与学力追踪)
   - [API 概览](#api-概览)
@@ -38,6 +42,16 @@ MathAssistant 是一个由大语言模型驱动的智能数学教学系统，包
 - **会话记录**：自动导出 Markdown 或自包含 HTML（支持 KaTeX 数学公式渲染）
 - **多轮对话**：基于 LangGraph 的状态图维护上下文记忆
 
+### 🌐 Web 聊天界面 (Streamlit)
+
+- **登录 / 注册**：浏览器中直接创建账户并登录
+- **对话交互**：类 ChatGPT 的聊天界面，逐步展示 Agent 的思考过程和工具调用
+- **会话管理**：侧边栏一键新建对话、切换历史对话
+- **无感保存**：每轮对话自动保存到后端数据库，后台静默生成 Markdown / HTML 导出
+- **实时反馈**：👍/👎 按钮标记答案正确性，自动更新掌握度
+- **学力看板**：侧边栏实时展示正确率、知识点数、连续学习天数
+- **标签展示**：当前对话自动标注的知识点标签实时显示
+
 ### 📊 用户管理后端 (FastAPI)
 
 - **账户系统**：注册 / 登录 / JWT 认证
@@ -54,47 +68,51 @@ MathAssistant 是一个由大语言模型驱动的智能数学教学系统，包
 ## 系统架构
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│                      用户界面层                           │
-│  ┌─────────────────────┐    ┌────────────────────────┐   │
-│  │   CLI (Rich/TUI)    │    │   Swagger UI / HTTP    │   │
-│  │   main.py REPL      │    │   /docs (FastAPI)      │   │
-│  └────────┬────────────┘    └───────────┬────────────┘   │
-│           │                             │                 │
-├───────────┼─────────────────────────────┼─────────────────┤
-│           │        核心逻辑层            │                 │
-│  ┌────────▼────────┐   ┌───────────────▼─────────────┐   │
-│  │  LangGraph Agent │   │  FastAPI Routers            │   │
-│  │  - System Prompt │   │  - Auth / Questions / KPs   │   │
-│  │  - 2 Tools       │   │  - Analytics / Tags         │   │
-│  │  - Middleware     │   │                             │   │
-│  │  - MemorySaver    │   │  Services:                  │   │
-│  └────────┬────────┘   │  - TaggingService (LLM)      │   │
-│           │             │  - AnalyticsEngine            │   │
-│           │             │  - AuthService (bcrypt+JWT)  │   │
-│           │             └───────────────┬─────────────┘   │
-├───────────┼─────────────────────────────┼─────────────────┤
-│           │        数据与工具层          │                 │
-│  ┌────────▼────────┐   ┌───────────────▼─────────────┐   │
-│  │  Tools           │   │  SQLAlchemy ORM             │   │
-│  │  - execute_python│   │  - SQLite (单文件)           │   │
-│  │  - web_search    │   │  - 7 Models                 │   │
-│  └────────┬────────┘   └───────────────┬─────────────┘   │
-│           │                             │                 │
-│  ┌────────▼────────┐                   │                 │
-│  │  DeepSeek API    │                   │                 │
-│  │  (OpenAI-compat) │                   │                 │
-│  └─────────────────┘                   │                 │
-└──────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                         用户界面层                               │
+│  ┌───────────────┐  ┌───────────────┐  ┌────────────────────┐   │
+│  │  CLI (Rich)   │  │  Streamlit    │  │  Swagger UI / HTTP │   │
+│  │  main.py REPL │  │  app.py :8501 │  │  /docs (FastAPI)   │   │
+│  └───────┬───────┘  └───────┬───────┘  └──────────┬─────────┘   │
+│          │                  │                      │              │
+│          │         ┌────────┘                      │              │
+│          │         │  HTTP (httpx)                 │              │
+│          │         ▼                               │              │
+├──────────┼─────────┼───────────────────────────────┼──────────────┤
+│          │         │         核心逻辑层              │              │
+│  ┌───────▼───────┐ │  ┌────────────────────────────▼──────────┐  │
+│  │ LangGraph     │ │  │  FastAPI Routers                       │  │
+│  │ Agent         │ │  │  - Auth / Questions / KPs              │  │
+│  │ - System      │ │  │  - Analytics / Tags                    │  │
+│  │   Prompt      │ │  │                                        │  │
+│  │ - 2 Tools     │ │  │  Services:                             │  │
+│  │ - Middleware  │ │  │  - TaggingService (LLM)                │  │
+│  │ - MemorySaver │ │  │  - AnalyticsEngine                     │  │
+│  └───────┬───────┘ │  │  - AuthService (bcrypt+JWT)            │  │
+│          │         │  └────────────────────┬───────────────────┘  │
+├──────────┼─────────┼───────────────────────┼──────────────────────┤
+│          │         │      数据与工具层      │                      │
+│  ┌───────▼───────┐ │  ┌────────────────────▼──────────────────┐  │
+│  │  Tools        │ │  │  SQLAlchemy ORM                        │  │
+│  │  - python     │ │  │  - SQLite (单文件)                      │  │
+│  │  - search     │ │  │  - 7 Models                            │  │
+│  └───────┬───────┘ │  └────────────────────────────────────────┘  │
+│          │         │                                               │
+│  ┌───────▼───────┐ │                                               │
+│  │  DeepSeek API │ │                                               │
+│  │ (OpenAI compat)│ │                                               │
+│  └───────────────┘ │                                               │
+└────────────────────────────────────────────────────────────────────┘
 ```
+
 
 **数据流概要**：
 
-1. 用户输入 → `main.py` 解析命令 → 如果是数学问题则提交给 Agent
+1. 用户输入 → CLI / Streamlit / Swagger → 如果是数学问题则提交给 Agent
 2. Agent (LangGraph) 调用 LLM (DeepSeek)，LLM 可决定调用工具（Python 执行 / 网络搜索）
 3. 工具结果返回 LLM，生成最终回答
 4. 会话记录器 (`SessionRecorder`) 累积问答 → 导出为 Markdown / HTML
-5. （可选）CLI 通过 `cli_client.py` 将问题提交给后端 → 后端触发 LLM 自动标注 → 用户反馈正确/错误 → 掌握度更新
+5. （可选）CLI / Web 前端通过 `cli_client.py` 将问题提交给后端 → 后端触发 LLM 自动标注 → 用户反馈正确/错误 → 掌握度更新
 
 ---
 
@@ -121,8 +139,11 @@ pip install -e ".[math-render]"
 # 带后端服务（用户管理 + 学力分析）
 pip install -e ".[server]"
 
+# 带 Web 前端界面
+pip install -e ".[frontend]"
+
 # 全部安装
-pip install -e ".[math-render,server]"
+pip install -e ".[math-render,server,frontend]"
 ```
 
 ### 配置 API Key
@@ -159,8 +180,24 @@ python -m math_assistant.main --backend-url http://127.0.0.1:8000 --backend-user
 # 默认 127.0.0.1:8000
 python -m math_assistant.server.main
 
+# 首次启动后初始化知识体系（仅需一次）
+curl -X POST http://127.0.0.1:8000/api/knowledge-points/seed
+
 # 打开 Swagger 交互文档
 open http://127.0.0.1:8000/docs
+```
+
+### 启动 Web 前端
+
+```bash
+# 安装依赖
+pip install -e ".[frontend]"
+
+# 启动 Streamlit 前端（默认 127.0.0.1:8501）
+streamlit run src/math_assistant/frontend/app.py
+
+# 浏览器打开 http://127.0.0.1:8501
+# 确保后端已在 8000 端口运行
 ```
 
 ---
@@ -277,6 +314,87 @@ Agent 会在需要计算、求解或绘图时自动生成并执行 Python 代码
 Agent 自动通过 DuckDuckGo 搜索数学定理、定义或参考资料。搜索结果会标注来源 URL。
 
 **可插拔架构**：通过继承 `BaseSearchProvider` 并注册到 `PROVIDER_REGISTRY` 即可添加新的搜索后端。
+
+---
+
+## Web 前端界面
+
+Streamlit Web 前端提供了一个**简单直观**的浏览器端数学学习体验，包含登录、对话交互、会话管理和学力看板。
+
+### 启动方式
+
+```bash
+# 1. 安装依赖
+pip install -e ".[frontend]"
+
+# 2. 先启动后端（另一个终端）
+python -m math_assistant.server.main
+
+# 3. 初始化知识体系（首次）
+curl -X POST http://127.0.0.1:8000/api/knowledge-points/seed
+
+# 4. 启动前端
+streamlit run src/math_assistant/frontend/app.py
+```
+
+浏览器打开 `http://127.0.0.1:8501`。
+
+### 页面功能
+
+**登录页**：两个 Tab（Login / Register），居中卡片式布局。登录后 JWT Token 自动存储在会话中。
+
+**对话页**（主界面）：
+
+```
+┌─ Sidebar ─────────────┬──────────────────────────┐
+│ 🧮 MathAssistant      │  🧮 MathAssistant        │
+│                        │                          │
+│ 📝 新建对话            │  💭 Step 1: reasoning... │
+│                        │  逐步展示思考过程...      │
+│ 📚 历史对话            │                          │
+│ 📌 求导数 x^2 sin(x)  │  🛠 execute_python       │
+│ 📌 矩阵特征值问题      │  (可折叠展开)            │
+│                        │                          │
+│ 📊 学习统计            │  🤖 最终回答...          │
+│ 总体正确率: 67%        │                          │
+│ 知识点: 3 个           │  👍 👎 反馈按钮          │
+│ 🔥 连续天数: 5         │                          │
+│                        │  [输入框_______________] │
+│ 🏷 当前标签            │                          │
+│ 🤖 Derivatives (89%)  │                          │
+│ 🤖 Product Rule (76%) │                          │
+└────────────────────────┴──────────────────────────┘
+```
+
+**侧边栏**：
+
+| 区块 | 功能 |
+|------|------|
+| 📝 新建对话 | 一键清除当前对话，创建新的 LangGraph thread |
+| 📚 历史对话 | 按日期列出后端保存的历史问题，点击可加载 |
+| 📊 学习统计 | 正确率、探索知识点数、连续学习天数 |
+| 🏷 当前标签 | 最新问题的自动标注结果（LLM 标注 + 置信度） |
+| 🚪 退出登录 | 清除 JWT Token，返回登录页 |
+
+### 交互流程
+
+**对话轮次**：
+
+1. 用户在底部输入框输入数学问题
+2. 前端显示用户消息气泡
+3. 前端调用 `POST /api/questions` 将问题提交到后端（后台触发 LLM 自动标注）
+4. 前端调用 `create_math_agent()` → `agent.stream()` 逐步渲染：
+   - `💭 Step N: reasoning...` → AI 文本逐步累积
+   - `🛠 tool_name` → 折叠面板显示工具调用详情（Python 代码高亮）
+5. Agent 完成 → 显示完整回答 + `👍` `👎` 反馈按钮
+6. 用户反馈 → `POST /api/questions/{id}/answer` → 掌握度自动更新
+7. 侧边栏标签和统计自动刷新
+
+**后台保存（用户无感）**：
+
+- 每轮对话自动入库，无需任何手动操作
+- 会话结束后自动通过 MarkdownExporter / HTMLExporter 导出
+- 用户全程只需对话和反馈
 
 ---
 
@@ -494,6 +612,14 @@ MathAssistant/
     ├── session/                 # 会话录制与导出
     │   ├── recorder.py          # Session / Turn / ToolCallRecord 数据模型
     │   └── exporter.py          # Markdown + HTML 导出器（支持 KaTeX）
+    │
+    ├── frontend/                # 🌐 Streamlit Web 前端
+    │   ├── app.py              # 主入口 + 页面路由
+    │   ├── auth_page.py        # 登录/注册页面
+    │   ├── chat_page.py        # 对话界面 + Agent 流式渲染
+    │   ├── agent_runner.py     # Agent 调用封装（缓存 + 步骤生成器）
+    │   ├── sidebar.py          # 侧边栏：历史 / 统计 / 标签
+    │   └── session_store.py    # Streamlit 状态管理
     │
     └── server/                  # 🔥 后端服务（用户管理 + 学力分析）
         ├── __init__.py
