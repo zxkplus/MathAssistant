@@ -92,6 +92,28 @@ class MathAssistantBackendClient:
         resp.raise_for_status()
         return resp.json()
 
+    def list_questions(
+        self,
+        page: int = 1,
+        per_page: int = 20,
+        tag: int | None = None,
+        search: str | None = None,
+    ) -> dict:
+        """List questions for the current user with pagination."""
+        httpx = self._get_client()
+        params: dict = {"page": page, "per_page": per_page}
+        if tag is not None:
+            params["tag"] = tag
+        if search is not None:
+            params["search"] = search
+        resp = httpx.get(
+            f"{self.base_url}/api/questions/",
+            params=params,
+            headers=self._headers(),
+        )
+        resp.raise_for_status()
+        return resp.json()
+
     def update_tags(self, question_id: int, tag_ids: list[int]) -> dict:
         """Manually update tags for a question."""
         httpx = self._get_client()
