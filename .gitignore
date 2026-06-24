@@ -30,4 +30,13 @@ Thumbs.db
 # Local config (contains secrets like API keys)
 config.local.yaml
 *.local.yaml
-src\math_assistant\__pycache__
+
+# Backend server database (auto-generated)
+math_assistant.db
+
+# Claude Code internal files
+.claude/
+
+# Session exports
+sessions/*.md
+sessions/*.html
