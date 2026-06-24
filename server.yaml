@@ -1,0 +1,17 @@
+# MathAssistant Backend Server Configuration
+# Secrets (secret_key) should go in server.local.yaml (gitignored)
+
+host: "127.0.0.1"
+port: 8000
+log_level: "info"
+
+database:
+  url: "sqlite:///./math_assistant.db"
+
+auth:
+  secret_key: "change-me-in-production-use-a-random-string"
+  algorithm: "HS256"
+  access_token_expire_minutes: 1440
+
+cors_origins:
+  - "*"
