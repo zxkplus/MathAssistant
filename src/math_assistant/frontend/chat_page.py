@@ -5,6 +5,7 @@ streams agent responses step-by-step, and syncs everything
 to the backend API automatically.
 """
 
+import re
 import time
 from typing import Optional
 
@@ -14,6 +15,37 @@ from math_assistant.config import Config
 from math_assistant.server.cli_client import MathAssistantBackendClient
 from math_assistant.frontend import session_store as store
 from math_assistant.frontend.agent_runner import run_agent_stream_cached
+
+
+# ── LaTeX delimiter conversion ──────────────────────────────────────────
+# Streamlit's st.markdown() uses KaTeX, which only recognizes $...$ (inline)
+# and $$...$$ (display) delimiters.  The LLM often outputs standard LaTeX
+# \(...\) and \[...\] which get mangled by markdown's escape processing
+# (\[ renders as just [).  We convert them before handing text to st.markdown.
+
+# Match \[...\] – display math.  Use DOTALL so multi-line blocks work.
+_DISPLAY_MATH_RE = re.compile(r'\\\[(.*?)\\\]', re.DOTALL)
+# Match \(...\) – inline math.
+_INLINE_MATH_RE = re.compile(r'\\\((.*?)\\\)', re.DOTALL)
+
+
+def _fix_latex_delimiters(text: str) -> str:
+    """Convert standard LaTeX delimiters to KaTeX-compatible delimiters.
+
+    \[ ... \]  →  $$ ... $$
+    \( ... \)  →  $ ... $
+    """
+    text = _DISPLAY_MATH_RE.sub(r'$$\1$$', text)
+    text = _INLINE_MATH_RE.sub(r'$\1$', text)
+    return text
+
+
+def _render_markdown(content: str) -> None:
+    """Render markdown content with proper LaTeX rendering.
+
+    Preprocesses LaTeX delimiters then delegates to st.markdown.
+    """
+    st.markdown(_fix_latex_delimiters(content))
 
 
 def render_chat_page(config: Config) -> None:
@@ -34,7 +66,7 @@ def render_chat_page(config: Config) -> None:
                 st.write(msg["content"])
         elif role == "assistant":
             with st.chat_message("assistant"):
-                st.markdown(msg["content"])
+                _render_markdown(msg["content"])
         elif role == "tool":
             with st.expander(f"🛠 {msg.get('tool_name', 'tool')}", expanded=False):
                 st.code(msg.get("content", "")[:2000], language=None)
@@ -100,8 +132,9 @@ def _handle_user_input(prompt: str, config: Config) -> None:
                     st.caption(f"💭 Step {step_count}: reasoning...")
                     if content.strip():
                         full_response_parts.append(content)
-                        # Render accumulated text so far
-                        text_placeholder.markdown("\n\n".join(full_response_parts))
+                        # Render accumulated text so far (with LaTeX fix)
+                        combined = "\n\n".join(full_response_parts)
+                        text_placeholder.markdown(_fix_latex_delimiters(combined))
 
                 elif msg_type == "ToolMessage" and node == "tools":
                     tool_name = event.get("tool_name", "unknown")
@@ -120,7 +153,7 @@ def _handle_user_input(prompt: str, config: Config) -> None:
             # Final render: all text
             final_text = "\n\n".join(full_response_parts)
             if final_text.strip():
-                text_placeholder.markdown(final_text)
+                text_placeholder.markdown(_fix_latex_delimiters(final_text))
                 store.add_assistant_message(final_text)
             else:
                 text_placeholder.markdown("*(No output generated)*")
