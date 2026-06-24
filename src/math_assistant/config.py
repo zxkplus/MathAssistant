@@ -40,6 +40,13 @@ class ApiConfig(BaseModel):
     api_key: Optional[str] = None
 
 
+class VisionConfig(BaseModel):
+    provider: str = "openai"
+    model: str = "gpt-4o"
+    api_key: Optional[str] = None
+    base_url: str = "https://api.openai.com/v1"
+
+
 class OutputConfig(BaseModel):
     image_dir: str = "./images"
     save_mode: Literal["session", "turn", "manual"] = "session"
@@ -52,6 +59,7 @@ class Config(BaseModel):
     model: ModelConfig = ModelConfig()
     api: ApiConfig = ApiConfig()
     search: SearchConfig = SearchConfig()
+    vision: VisionConfig = VisionConfig()
     python_executor: PythonExecutorConfig = PythonExecutorConfig()
     agent: AgentConfig = AgentConfig()
     output: OutputConfig = OutputConfig()
@@ -101,7 +109,7 @@ class Config(BaseModel):
 
         # Extract sections into config_dict
         config_dict = {}
-        for section in ("model", "api", "search", "python_executor", "agent", "output"):
+        for section in ("model", "api", "search", "vision", "python_executor", "agent", "output"):
             if section in config_data:
                 config_dict[section] = config_data[section]
 
@@ -114,6 +122,10 @@ class Config(BaseModel):
             "MATH_ASSISTANT_MODEL": "model.name",
             "MATH_ASSISTANT_TEMPERATURE": "model.temperature",
             "MATH_ASSISTANT_SEARCH_PROVIDER": "search.provider",
+            "MATH_ASSISTANT_VISION_PROVIDER": "vision.provider",
+            "MATH_ASSISTANT_VISION_MODEL": "vision.model",
+            "MATH_ASSISTANT_VISION_API_KEY": "vision.api_key",
+            "MATH_ASSISTANT_VISION_BASE_URL": "vision.base_url",
             "MATH_ASSISTANT_PYTHON_TIMEOUT": "python_executor.timeout_seconds",
             "MATH_ASSISTANT_MAX_TOOL_CALLS": "agent.max_tool_calls",
             "MATH_ASSISTANT_IMAGE_DIR": "output.image_dir",

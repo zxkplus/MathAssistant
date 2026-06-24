@@ -12,8 +12,10 @@ from langchain_openai import ChatOpenAI
 from .config import Config
 from .prompts import SYSTEM_PROMPT
 from .search_providers import get_search_provider
+from .vision_providers import get_vision_provider
 from .tools.python_executor import execute_python
 from .tools.search import create_search_tool
+from .tools.image_to_text import create_image_to_text_tool
 
 
 def create_math_agent(config: Config):
@@ -37,8 +39,25 @@ def create_math_agent(config: Config):
     search_provider = get_search_provider(config.search.provider)
     search_tool = create_search_tool(search_provider)
 
+    # Set up the vision (image-to-text) provider
+    # API key: use vision-specific key, or fall back to the main API key
+    vision_api_key = config.vision.api_key or config.get_api_key()
+    # Base URL: if vision.base_url is still the default (OpenAI) but main API
+    # is using a different provider (e.g. DeepSeek), follow the main base URL
+    # so the same API key works for both.
+    vision_base_url = config.vision.base_url
+    if vision_base_url == "https://api.openai.com/v1" and config.api.base_url != "https://api.openai.com/v1":
+        vision_base_url = config.api.base_url
+    vision_provider = get_vision_provider(
+        config.vision.provider,
+        model=config.vision.model,
+        api_key=vision_api_key,
+        base_url=vision_base_url,
+    )
+    image_to_text_tool = create_image_to_text_tool(vision_provider)
+
     # Build tool list
-    tools = [search_tool, execute_python]
+    tools = [search_tool, execute_python, image_to_text_tool]
 
     # Build middleware
     middleware = [
