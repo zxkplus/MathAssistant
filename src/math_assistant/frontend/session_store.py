@@ -5,9 +5,13 @@ keys consistent and documented across the application.
 """
 
 import uuid
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import streamlit as st
+
+if TYPE_CHECKING:
+    from math_assistant.config import OutputConfig
+    from math_assistant.frontend.save_manager import FrontendSaveManager
 
 
 # ── Key constants ─────────────────────────────────────
@@ -22,6 +26,9 @@ class Keys:
     SESSIONS = "sessions"
     BACKEND_URL = "backend_url"
     CONFIG = "config"
+    SAVE_MANAGER = "save_manager"
+    QUESTION_GROUP_ID = "question_group_id"
+    CURRENT_TOPIC = "current_topic"
 
 
 # ── Initialization ────────────────────────────────────
@@ -74,6 +81,30 @@ def get_backend_url() -> str:
     return st.session_state.get(Keys.BACKEND_URL, "http://127.0.0.1:8000")
 
 
+def get_save_manager(output_config: "OutputConfig") -> "FrontendSaveManager":
+    """Get or create the FrontendSaveManager, cached in session_state."""
+    if Keys.SAVE_MANAGER not in st.session_state or st.session_state[Keys.SAVE_MANAGER] is None:
+        from math_assistant.frontend.save_manager import FrontendSaveManager
+        st.session_state[Keys.SAVE_MANAGER] = FrontendSaveManager(output_config)
+    return st.session_state[Keys.SAVE_MANAGER]
+
+
+def get_question_group_id() -> Optional[str]:
+    return st.session_state.get(Keys.QUESTION_GROUP_ID)
+
+
+def set_question_group_id(gid: Optional[str]) -> None:
+    st.session_state[Keys.QUESTION_GROUP_ID] = gid
+
+
+def get_current_topic() -> Optional[str]:
+    return st.session_state.get(Keys.CURRENT_TOPIC)
+
+
+def set_current_topic(topic: Optional[str]) -> None:
+    st.session_state[Keys.CURRENT_TOPIC] = topic
+
+
 # ── Setters ───────────────────────────────────────────
 
 def set_logged_in(token: str, user: dict) -> None:
@@ -123,3 +154,8 @@ def new_conversation() -> None:
     st.session_state[Keys.THREAD_ID] = str(uuid.uuid4())[:8]
     st.session_state[Keys.MESSAGES] = []
     st.session_state[Keys.LAST_QUESTION_ID] = None
+    # Reset save-related state
+    st.session_state[Keys.QUESTION_GROUP_ID] = None
+    st.session_state[Keys.CURRENT_TOPIC] = None
+    if Keys.SAVE_MANAGER in st.session_state and st.session_state[Keys.SAVE_MANAGER] is not None:
+        st.session_state[Keys.SAVE_MANAGER].reset()

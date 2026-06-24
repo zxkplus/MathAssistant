@@ -181,6 +181,14 @@ def _handle_user_input(prompt: str, config: Config) -> None:
     # Submit question to backend (non-blocking best-effort)
     question_id = _submit_to_backend(prompt)
 
+    # ── Auto-save: init save manager & classify question ──
+    save_mgr = store.get_save_manager(config.output)
+    is_new_group = save_mgr.classify_and_start_group(prompt)
+    if is_new_group:
+        store.set_question_group_id(save_mgr.recorder.get_current_group().group_id)  # type: ignore[union-attr]
+        store.set_current_topic(prompt)
+    save_mgr.recorder.start_turn(prompt)
+
     # Run agent with streaming
     thread_id = store.get_thread_id()
 
@@ -208,11 +216,19 @@ def _handle_user_input(prompt: str, config: Config) -> None:
                         # Render accumulated text so far (with LaTeX fix)
                         combined = "\n\n".join(full_response_parts)
                         text_placeholder.markdown(_fix_latex_delimiters(combined))
+                    # ── Record assistant text for save ──
+                    save_mgr.recorder.add_assistant_text(content)
+                    # Record tool calls if present on the AIMessage
+                    if event.get("tool_calls"):
+                        for tc in event["tool_calls"]:
+                            save_mgr.recorder.record_tool_call(
+                                name=tc.get("name", "unknown"),
+                                args=tc.get("args", {}),
+                            )
 
                 elif msg_type == "ToolMessage" and node == "tools":
                     tool_name = event.get("tool_name", "unknown")
                     # Show tool call in expander
-                    tool_key = f"tool_{step_count}_{tool_name}"
                     with st.expander(f"🛠 {tool_name} (Step {step_count})", expanded=False):
                         tool_display = content[:3000]
                         if tool_name == "execute_python":
@@ -224,6 +240,11 @@ def _handle_user_input(prompt: str, config: Config) -> None:
 
                     # Record tool message for history
                     store.add_tool_message(tool_name, content[:1000])
+                    # ── Record tool result for save ──
+                    save_mgr.recorder.record_tool_result(
+                        name=tool_name,
+                        output=content,
+                    )
 
             # Final render: all text
             final_text = "\n\n".join(full_response_parts)
@@ -235,6 +256,16 @@ def _handle_user_input(prompt: str, config: Config) -> None:
 
         except Exception as e:
             text_placeholder.error(f"Error: {e}")
+
+        finally:
+            # ── Auto-save: finalize turn and save question group ──
+            try:
+                turn = save_mgr.recorder.end_turn()
+                if save_mgr.recorder.get_current_group() is not None:
+                    save_mgr.recorder.add_turn_to_current_group(turn)
+                    save_mgr.save_current_group()
+            except Exception:
+                pass  # best-effort: don't break the UI on save failure
 
     # Record answer feedback buttons (only if we got a response)
     if full_response_parts and question_id:
