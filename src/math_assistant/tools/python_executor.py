@@ -6,6 +6,7 @@ Provides a sandboxed environment for sympy, numpy, and matplotlib.
 
 import ast
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -20,7 +21,11 @@ class PythonCodeInput(BaseModel):
         "Python code to execute. You can import and use: sympy (symbolic math), "
         "numpy (numerical computation), matplotlib (visualization charts). "
         "Use print() to output results. For charts, save with "
-        "plt.savefig('images/chart_name.png') and print the file path."
+        "plt.savefig('images/chart_name.png') and print the file path.\n\n"
+        "IMPORTANT: If your code contains strings with backslashes (e.g. HTML, "
+        "CSS inline styles, LaTeX, file paths on Windows), you MUST use "
+        'raw strings: r"""...""" or r\'...\' to prevent Python from interpreting '
+        r"backslash sequences like \x, \u, \n as escape characters."
     ))
 
 
@@ -38,6 +43,29 @@ import json
 from sympy import symbols, Eq, solve, diff, integrate, limit, simplify, expand, factor, Matrix, sin, cos, tan, log, exp, sqrt, pi, oo
 # User code starts below
 """
+
+# Regex to find triple-quoted strings (both """ and ''')
+_TRIPLE_QUOTED_RE = re.compile(
+    r'("{3}[\s\S]*?"{3}|\'{3}[\s\S]*?\'{3})'
+)
+
+
+def _fix_unicode_escapes(code: str) -> str:
+    """Convert triple-quoted strings to raw strings if they contain
+    backslash sequences that Python would interpret as escape characters.
+
+    This prevents SyntaxError from unicode escapes (e.g. \\xXX in HTML/CSS)
+    inside LLM-generated code.
+    """
+    def _make_raw(match: re.Match) -> str:
+        s = match.group(1)
+        # Check if this string contains backslash sequences that could be
+        # misinterpreted as escapes (skip already-escaped backslashes \\\)
+        if re.search(r'(?<!\\)\\(?:x[0-9a-fA-F]|u[0-9a-fA-F]|U[0-9a-fA-F]|N\{)', s):
+            return 'r' + s
+        return s
+
+    return _TRIPLE_QUOTED_RE.sub(_make_raw, code)
 
 
 def _build_execution_script(code: str, image_dir: str) -> str:
@@ -57,6 +85,10 @@ def _build_execution_script(code: str, image_dir: str) -> str:
             code = "\n".join(lines)
     except SyntaxError:
         pass  # Let the subprocess report the syntax error naturally
+
+    # Fix common unicode escape issues in triple-quoted strings (e.g. HTML/CSS
+    # content with \\x, \\u that Python interprets as hex escape sequences)
+    code = _fix_unicode_escapes(code)
 
     # Use a placeholder that won't conflict with user code
     _PLACEHOLDER = "___IMAGE_DIR___"
