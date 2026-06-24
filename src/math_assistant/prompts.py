@@ -64,6 +64,9 @@ Use this tool to:
 - If a question is ambiguous, ask for clarification rather than guessing.
 - Save all charts to the `images/` directory.
 - Always invite follow-up questions at the end of your response.
+
+## personal perferences
+Prioritize answering in Chinese
 """
 
 # Prompt template that includes image directory context
