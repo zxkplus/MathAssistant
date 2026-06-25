@@ -291,13 +291,18 @@ def _extract_text_from_image(image_path: str, config: Config) -> str:
 
 
 def _clear_uploaded_image() -> None:
-    """Clear all uploaded image state including the file_uploader widget."""
+    """Clear all uploaded image tracking state.
+
+    Note: we do NOT touch the st.file_uploader widget key
+    (_mathassist_image_uploader) because Streamlit forbids modifying
+    widget state after the widget has been rendered.  The hash-based
+    dedup in _render_image_upload_area prevents re-processing the
+    same image, and the widget state resets naturally on next upload.
+    """
     st.session_state.pop(f"{_IMG_KEY_UPLOADED}_hash", None)
     st.session_state.pop(_IMG_KEY_UPLOADED, None)
     st.session_state.pop(_IMG_KEY_EXTRACTED, None)
     st.session_state.pop(_IMG_KEY_SAVED_PATH, None)
-    # Reset the file_uploader widget so it doesn't show the old file
-    st.session_state["_mathassist_image_uploader"] = None
 
 
 def _build_combined_message(user_text: str) -> str:
