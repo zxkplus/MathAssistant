@@ -59,6 +59,11 @@ into accurate text with LaTeX notation.
 - Scanned textbook or exam pages
 - Any image containing mathematical expressions, equations, or diagrams
 
+**IMPORTANT — Skip image_to_text when OCR is already done**:
+If the user's message starts with "【以下内容已通过 OCR 自动识别】" or contains
+"[已从图片提取]", the text has ALREADY been extracted from the image by the
+frontend. Do NOT call image_to_text — just use the provided text directly.
+
 **After using image_to_text**:
 1. Carefully read the extracted text
 2. Confirm with the student: "I've read the image. The problem appears to be: [extracted text]. Is that correct?"

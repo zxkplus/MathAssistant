@@ -320,20 +320,23 @@ def _build_combined_message(user_text: str) -> str:
     parts: list[str] = []
 
     if extracted and not extracted.startswith("Error:"):
-        parts.append(f"【图片中的题目】\n{extracted}")
+        parts.append(
+            f"【以下内容已通过 OCR 自动识别，请直接使用，无需再次调用 image_to_text 工具】\n"
+            f"{extracted}"
+        )
     elif extracted and extracted.startswith("Error:"):
         # OCR failed — tell the agent to use image_to_text tool
         if saved_path:
             parts.append(
-                f"[图片上传失败，OCR 服务不可用: {extracted}]\n\n"
-                f"请使用 image_to_text 工具读取图片: {saved_path}"
+                f"【图片 OCR 失败】错误信息: {extracted}\n\n"
+                f"请使用 image_to_text 工具读取以下路径的图片: {saved_path}"
             )
         else:
-            parts.append(f"[图片识别失败: {extracted}]")
+            parts.append(f"【图片 OCR 失败】{extracted}")
 
     if user_text.strip():
         if parts:
-            parts.append(f"\n【补充说明】\n{user_text}")
+            parts.append(f"\n【学生的补充说明】\n{user_text}")
         else:
             parts.append(user_text)
 
