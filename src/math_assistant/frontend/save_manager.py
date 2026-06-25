@@ -9,14 +9,19 @@ to click anything.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from math_assistant.config import OutputConfig
 from math_assistant.session import (
     MarkdownExporter,
     HTMLExporter,
     SessionRecorder,
+    serialize_session,
 )
 from math_assistant.frontend.question_classifier import QuestionClassifier
+
+if TYPE_CHECKING:
+    from math_assistant.workspace import WorkspaceContext
 
 
 class FrontendSaveManager:
@@ -24,7 +29,7 @@ class FrontendSaveManager:
 
     Usage per conversation::
 
-        mgr = FrontendSaveManager(config.output)
+        mgr = FrontendSaveManager(config.output, workspace_ctx)
 
         # Before each user message
         mgr.classify_and_start_group(user_message)
@@ -44,19 +49,28 @@ class FrontendSaveManager:
         mgr.reset()
     """
 
-    def __init__(self, config: OutputConfig) -> None:
+    def __init__(
+        self,
+        config: OutputConfig,
+        workspace_ctx: WorkspaceContext | None = None,
+    ) -> None:
+        # Determine effective paths: prefer workspace, fall back to legacy config
+        image_dir = str(workspace_ctx.images_dir) if workspace_ctx else config.image_dir
+        export_dir = str(workspace_ctx.workspace_dir) if workspace_ctx else config.save_dir
+
         self._recorder = SessionRecorder(
             model="",  # frontend doesn't expose model name to this layer
-            image_dir=config.image_dir,
+            image_dir=image_dir,
         )
         self._classifier = QuestionClassifier()
-        self._md_exporter = MarkdownExporter(output_dir=config.save_dir)
+        self._md_exporter = MarkdownExporter(output_dir=export_dir)
         self._html_exporter = HTMLExporter(
-            output_dir=config.save_dir,
-            image_dir=config.image_dir,
+            output_dir=export_dir,
+            image_dir=image_dir,
             embed_images=config.embed_images,
         )
         self._do_html = config.html_export
+        self._workspace_ctx = workspace_ctx
 
     # ------------------------------------------------------------------
     # Public API
@@ -66,6 +80,11 @@ class FrontendSaveManager:
     def recorder(self) -> SessionRecorder:
         """The underlying SessionRecorder (for feeding turn data)."""
         return self._recorder
+
+    @property
+    def workspace_ctx(self) -> WorkspaceContext | None:
+        """The workspace context, if workspaces are enabled."""
+        return self._workspace_ctx
 
     def classify_and_start_group(self, user_message: str) -> bool:
         """Classify the message and start a new question group if needed.
@@ -119,6 +138,20 @@ class FrontendSaveManager:
                 pass
 
         return md_path, html_path
+
+    def save_full_session(self) -> Path | None:
+        """Write the full session as session.json into the workspace.
+
+        Returns the path to session.json, or None on failure.
+        """
+        if self._workspace_ctx is None:
+            return None
+        try:
+            self._workspace_ctx.ensure_dirs()
+            serialize_session(self._recorder.session, self._workspace_ctx.session_json_path)
+            return self._workspace_ctx.session_json_path
+        except Exception:
+            return None
 
     def reset(self) -> None:
         """Reset state for a brand-new conversation."""

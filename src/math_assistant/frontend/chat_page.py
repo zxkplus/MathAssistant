@@ -217,8 +217,9 @@ def _render_image_upload_area(config: Config) -> None:
             st.session_state[f"{_IMG_KEY_UPLOADED}_hash"] = new_hash
             st.session_state[_IMG_KEY_UPLOADED] = file_bytes
 
-            # Save image to disk
-            save_dir = Path(config.output.image_dir)
+            # Save image to disk — prefer workspace, fall back to legacy image_dir
+            ws_ctx = store.get_workspace_ctx()
+            save_dir = ws_ctx.images_dir if ws_ctx else Path(config.output.image_dir)
             save_dir.mkdir(parents=True, exist_ok=True)
             stem = uuid.uuid4().hex[:8]
             image = Image.open(BytesIO(file_bytes))
@@ -405,7 +406,9 @@ def _handle_user_input(prompt: str, config: Config) -> None:
         step_count = 0
 
         try:
-            for event in run_agent_stream_cached(combined_prompt, thread_id, config):
+            ws_ctx = store.get_workspace_ctx()
+            image_dir = str(ws_ctx.images_dir) if ws_ctx else config.output.image_dir
+            for event in run_agent_stream_cached(combined_prompt, thread_id, config, image_dir=image_dir):
                 node = event["node"]
                 msg_type = event["type"]
                 content = event.get("content", "")

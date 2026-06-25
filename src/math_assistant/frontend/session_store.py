@@ -12,6 +12,7 @@ import streamlit as st
 if TYPE_CHECKING:
     from math_assistant.config import OutputConfig
     from math_assistant.frontend.save_manager import FrontendSaveManager
+    from math_assistant.workspace import WorkspaceContext, WorkspaceManager
 
 
 # ── Key constants ─────────────────────────────────────
@@ -29,6 +30,9 @@ class Keys:
     SAVE_MANAGER = "save_manager"
     QUESTION_GROUP_ID = "question_group_id"
     CURRENT_TOPIC = "current_topic"
+    # ── Workspace keys ──
+    WORKSPACE_CTX = "workspace_ctx"
+    WORKSPACE_MGR = "workspace_mgr"
 
 
 # ── Initialization ────────────────────────────────────
@@ -85,7 +89,8 @@ def get_save_manager(output_config: "OutputConfig") -> "FrontendSaveManager":
     """Get or create the FrontendSaveManager, cached in session_state."""
     if Keys.SAVE_MANAGER not in st.session_state or st.session_state[Keys.SAVE_MANAGER] is None:
         from math_assistant.frontend.save_manager import FrontendSaveManager
-        st.session_state[Keys.SAVE_MANAGER] = FrontendSaveManager(output_config)
+        ws_ctx = get_workspace_ctx()
+        st.session_state[Keys.SAVE_MANAGER] = FrontendSaveManager(output_config, ws_ctx)
     return st.session_state[Keys.SAVE_MANAGER]
 
 
@@ -159,3 +164,35 @@ def new_conversation() -> None:
     st.session_state[Keys.CURRENT_TOPIC] = None
     if Keys.SAVE_MANAGER in st.session_state and st.session_state[Keys.SAVE_MANAGER] is not None:
         st.session_state[Keys.SAVE_MANAGER].reset()
+    # Create a new workspace for the new conversation
+    ws_mgr = get_workspace_mgr()
+    if ws_mgr is not None:
+        config = st.session_state.get(Keys.CONFIG)
+        model = config.main.model if config else ""
+        new_ctx = ws_mgr.create_workspace(model=model)
+        set_workspace_ctx(new_ctx)
+        # Refresh the save manager with the new workspace context
+        if Keys.SAVE_MANAGER in st.session_state:
+            del st.session_state[Keys.SAVE_MANAGER]
+
+
+# ── Workspace state accessors ─────────────────────────
+
+def get_workspace_ctx() -> Optional["WorkspaceContext"]:
+    """Get the current workspace context from session state."""
+    return st.session_state.get(Keys.WORKSPACE_CTX)
+
+
+def set_workspace_ctx(ctx: Optional["WorkspaceContext"]) -> None:
+    """Set the current workspace context in session state."""
+    st.session_state[Keys.WORKSPACE_CTX] = ctx
+
+
+def get_workspace_mgr() -> Optional["WorkspaceManager"]:
+    """Get the workspace manager from session state."""
+    return st.session_state.get(Keys.WORKSPACE_MGR)
+
+
+def set_workspace_mgr(mgr: "WorkspaceManager") -> None:
+    """Set the workspace manager in session state."""
+    st.session_state[Keys.WORKSPACE_MGR] = mgr
