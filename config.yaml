@@ -14,8 +14,8 @@ main:
 # Kimi 兼容 OpenAI 协议，通过 OpenAIVisionProvider 调用。
 # 如需使用其他视觉模型（如 GPT-4o, Gemini），修改 model 和 base_url 即可。
 vision:
-  model: moonshot-v1-8k-vision     # Kimi 视觉模型
-  base_url: "https://api.moonshot.cn/v1"
+  model: moonshot-v1-8k-vision-preview     # Kimi 视觉模型（注意 -preview 后缀）
+  base_url: "https://api.moonshot.cn/v1"   # 国内用 moonshot.cn，海外用 moonshot.ai
   # config.local.yaml 示例:
   #   vision:
   #     api_key: "sk-kimi-xxx"
