@@ -37,6 +37,9 @@ math_assistant.db
 # Claude Code internal files
 .claude/
 
-# Session exports
+# Session exports (legacy)
 sessions/*.md
 sessions/*.html
+
+# Workspace-based session management
+workspaces/
