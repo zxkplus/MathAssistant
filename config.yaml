@@ -31,7 +31,21 @@ vision:
 # 代码中使用: config.tagging.create_chat_openai("tagging") 或直接取字段。
 
 search:
-  provider: duckduckgo
+  # Which search provider to use: "baidu" | "bocha" | "duckduckgo"
+  # - baidu:  Baidu AI Search (百度AI搜索), China-accessible, 100 free queries/day
+  # - bocha:  Bocha AI Search (博查), China-accessible, 2,000 free queries on signup
+  # - duckduckgo: free but BLOCKED in mainland China (requires VPN)
+  provider: baidu
+
+  # API keys for Baidu and Bocha (set here or via environment variables).
+  # Free API keys available at:
+  #   Baidu: https://console.bce.baidu.com/qianfan
+  #   Bocha: https://open.bochaai.com
+  baidu_api_key: ""
+  bocha_api_key: ""
+
+  # Enable academic paper search tool (Semantic Scholar — free, no API key needed)
+  academic_search: true
 
 python_executor:
   timeout_seconds: 30
@@ -40,6 +54,12 @@ agent:
   max_tool_calls: 20
 
 output:
+  # ── Workspace-based session management ──
+  # Each session gets its own subdirectory under workspace_root with
+  # session.json, session.md, session.html, and images/ all together.
+  workspace_root: "./workspaces"
+
+  # ── Legacy (kept for backward compatibility) ──
   image_dir: "./images"
   # Save mode: "session" (at exit), "turn" (each Q&A), "manual" (on :save command)
   save_mode: "session"

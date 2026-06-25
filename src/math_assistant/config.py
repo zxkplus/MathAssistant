@@ -95,7 +95,10 @@ class LLMProfile(BaseModel):
 # ── Other config sections ───────────────────────────────────────────────
 
 class SearchConfig(BaseModel):
-    provider: str = "duckduckgo"
+    provider: str = "baidu"
+    baidu_api_key: str = ""
+    bocha_api_key: str = ""
+    academic_search: bool = True
 
 
 class PythonExecutorConfig(BaseModel):
@@ -113,6 +116,9 @@ class AgentConfig(BaseModel):
 
 
 class OutputConfig(BaseModel):
+    # ── Workspace-based session management ──
+    workspace_root: str = "./workspaces"
+    # ── Legacy (kept for backward compatibility) ──
     image_dir: str = "./images"
     save_mode: Literal["session", "turn", "manual"] = "session"
     save_dir: str = "./sessions"
@@ -280,11 +286,15 @@ def _apply_env_overrides(config_dict: dict) -> None:
         "MATH_ASSISTANT_VISION_BASE_URL": "vision.base_url",
         # Other sections
         "MATH_ASSISTANT_SEARCH_PROVIDER": "search.provider",
+        "MATH_ASSISTANT_BAIDU_API_KEY": "search.baidu_api_key",
+        "MATH_ASSISTANT_BOCHA_API_KEY": "search.bocha_api_key",
+        "MATH_ASSISTANT_ACADEMIC_SEARCH": "search.academic_search",
         "MATH_ASSISTANT_PYTHON_TIMEOUT": "python_executor.timeout_seconds",
         "MATH_ASSISTANT_MAX_TOOL_CALLS": "agent.max_tool_calls",
         "MATH_ASSISTANT_IMAGE_DIR": "output.image_dir",
         "MATH_ASSISTANT_SAVE_MODE": "output.save_mode",
         "MATH_ASSISTANT_SAVE_DIR": "output.save_dir",
+        "MATH_ASSISTANT_WORKSPACE_ROOT": "output.workspace_root",
         "MATH_ASSISTANT_HTML_EXPORT": "output.html_export",
         "MATH_ASSISTANT_EMBED_IMAGES": "output.embed_images",
     }
