@@ -15,6 +15,10 @@ from pathlib import Path
 from langchain.tools import tool
 from pydantic import BaseModel, Field
 
+# Module-level configuration (set by create_python_executor factory)
+_current_image_dir: str = "./images"
+_current_timeout_seconds: int = 30
+
 
 class PythonCodeInput(BaseModel):
     code: str = Field(description=(
@@ -106,6 +110,12 @@ def _build_execution_script(code: str, image_dir: str) -> str:
     # content with \\x, \\u that Python interprets as hex escape sequences)
     code = _fix_unicode_escapes(code)
 
+    # Normalize to forward slashes — on Windows backslashes in paths
+    # (e.g. C:\Users\...) get interpreted as escape sequences in the
+    # generated Python string literals.  Python & the OS both accept
+    # forward slashes on all platforms.
+    safe_dir = image_dir.replace("\\", "/")
+
     # Use a placeholder that won't conflict with user code
     _PLACEHOLDER = "___IMAGE_DIR___"
     setup_lines = [
@@ -114,11 +124,11 @@ def _build_execution_script(code: str, image_dir: str) -> str:
         f"images_dir = os.path.abspath('{_PLACEHOLDER}') if '{_PLACEHOLDER}' else '.'",
         code,
     ]
-    return "\n".join(setup_lines).replace(_PLACEHOLDER, image_dir)
+    return "\n".join(setup_lines).replace(_PLACEHOLDER, safe_dir)
 
 
 @tool(args_schema=PythonCodeInput)
-def execute_python(code: str, image_dir: str = "./images", timeout_seconds: int = 30) -> str:
+def execute_python(code: str) -> str:
     """Execute Python code to solve math problems and generate visualizations.
 
     Use this tool for:
@@ -130,7 +140,7 @@ def execute_python(code: str, image_dir: str = "./images", timeout_seconds: int 
     Always print your results. For charts, save to 'images/' directory and
     print the file path so the user can see the chart.
     """
-    script = _build_execution_script(code, image_dir)
+    script = _build_execution_script(code, _current_image_dir)
 
     with tempfile.NamedTemporaryFile(
         mode="w", suffix=".py", delete=False, encoding="utf-8"
@@ -139,12 +149,16 @@ def execute_python(code: str, image_dir: str = "./images", timeout_seconds: int 
         script_path = f.name
 
     try:
+        # Run from the workspace directory (parent of image_dir) so that
+        # the LLM's relative "images/plot.png" paths land inside the
+        # session-specific workspace rather than the project root.
+        workspace_cwd = str(Path(_current_image_dir).parent.resolve())
         result = subprocess.run(
             [sys.executable, script_path],
             capture_output=True,
             text=True,
-            timeout=timeout_seconds,
-            cwd=str(Path.cwd()),
+            timeout=_current_timeout_seconds,
+            cwd=workspace_cwd,
         )
         stdout = result.stdout.strip()
         stderr = result.stderr.strip()
@@ -162,9 +176,29 @@ def execute_python(code: str, image_dir: str = "./images", timeout_seconds: int 
     except FileNotFoundError:
         return f"Error: Python executable not found at '{sys.executable}'. Check your environment."
     except subprocess.TimeoutExpired:
-        return f"Execution timed out after {timeout_seconds} seconds. Simplify your code or break it into smaller steps."
+        return f"Execution timed out after {_current_timeout_seconds} seconds. Simplify your code or break it into smaller steps."
     finally:
         try:
             os.unlink(script_path)
         except OSError:
             pass
+
+
+def create_python_executor(
+    image_dir: str = "./images",
+    timeout_seconds: int = 30,
+):
+    """Configure the execute_python tool with session-specific settings.
+
+    Args:
+        image_dir: Directory where generated images will be saved.
+                   For workspace mode, pass the session's images/ path.
+        timeout_seconds: Maximum execution time per code block.
+
+    Returns:
+        The configured execute_python tool function.
+    """
+    global _current_image_dir, _current_timeout_seconds
+    _current_image_dir = image_dir
+    _current_timeout_seconds = timeout_seconds
+    return execute_python
