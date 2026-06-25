@@ -137,7 +137,34 @@ class OpenAIVisionProvider(BaseVisionProvider):
                 response.raise_for_status()
                 data = response.json()
         except httpx.HTTPStatusError as e:
-            return f"Error: Vision API returned HTTP {e.response.status_code}: {e.response.text[:500]}"
+            # Detect known error patterns and give actionable messages
+            error_text = e.response.text[:1000] if e.response.text else ""
+            status = e.response.status_code
+
+            if status == 400 and "image_url" in error_text and ("unknown variant" in error_text or "expected `text`" in error_text):
+                return (
+                    f"Error: 当前模型 {self._model} 不支持图片识别。"
+                    f"该 API 端点只接受纯文本消息，不支持 image_url 类型的多模态请求。\n\n"
+                    f"解决方法：\n"
+                    f"1. 在 config.yaml 的 vision 段配置支持视觉的模型（如 gpt-4o）和对应的 API 地址\n"
+                    f"2. 或者设置 vision.api_key 为 OpenAI API Key，base_url 为 https://api.openai.com/v1"
+                )
+            if status == 401 or status == 403:
+                return (
+                    f"Error: Vision API 认证失败 (HTTP {status})。\n"
+                    f"请检查 vision.api_key 是否正确配置。\n"
+                    f"当前 base_url: {self._base_url}\n"
+                    f"当前 model: {self._model}"
+                )
+            if status == 404:
+                return (
+                    f"Error: Vision API 端点不存在 (HTTP 404)。\n"
+                    f"模型 {self._model} 可能在当前 API 上不可用。\n"
+                    f"当前 base_url: {self._base_url}\n"
+                    f"请检查 vision.model 和 vision.base_url 配置。"
+                )
+
+            return f"Error: Vision API returned HTTP {status}: {error_text[:500]}"
         except httpx.RequestError as e:
             return f"Error: Could not connect to vision API at {url}: {e}"
         except Exception as e:

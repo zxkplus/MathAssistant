@@ -281,16 +281,11 @@ def _extract_text_from_image(image_path: str, config: Config) -> str:
             except ValueError:
                 pass  # will be handled by the provider's own fallback
 
-        # Fall back to main base URL if vision is still on OpenAI default
-        vision_base_url = config.vision.base_url
-        if vision_base_url == "https://api.openai.com/v1" and config.api.base_url != "https://api.openai.com/v1":
-            vision_base_url = config.api.base_url
-
         provider = get_vision_provider(
             config.vision.provider,
             model=config.vision.model,
             api_key=vision_api_key,
-            base_url=vision_base_url,
+            base_url=config.vision.base_url,
         )
         result = provider.image_to_text(str(image_path))
         if result.startswith("Error:"):

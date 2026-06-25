@@ -42,17 +42,11 @@ def create_math_agent(config: Config):
     # Set up the vision (image-to-text) provider
     # API key: use vision-specific key, or fall back to the main API key
     vision_api_key = config.vision.api_key or config.get_api_key()
-    # Base URL: if vision.base_url is still the default (OpenAI) but main API
-    # is using a different provider (e.g. DeepSeek), follow the main base URL
-    # so the same API key works for both.
-    vision_base_url = config.vision.base_url
-    if vision_base_url == "https://api.openai.com/v1" and config.api.base_url != "https://api.openai.com/v1":
-        vision_base_url = config.api.base_url
     vision_provider = get_vision_provider(
         config.vision.provider,
         model=config.vision.model,
         api_key=vision_api_key,
-        base_url=vision_base_url,
+        base_url=config.vision.base_url,
     )
     image_to_text_tool = create_image_to_text_tool(vision_provider)
 
