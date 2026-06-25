@@ -7,6 +7,7 @@ the REPL loop feeds as the agent streams, then finalizes each turn.
 
 from __future__ import annotations
 
+import json
 import re
 import uuid
 from dataclasses import dataclass, field
@@ -23,6 +24,23 @@ class ToolCallRecord:
     input_args: dict[str, Any]
     output: str = ""
     error: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "input_args": self.input_args,
+            "output": self.output,
+            "error": self.error,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "ToolCallRecord":
+        return cls(
+            name=data["name"],
+            input_args=data.get("input_args", {}),
+            output=data.get("output", ""),
+            error=data.get("error", False),
+        )
 
 
 @dataclass
@@ -43,6 +61,27 @@ class Turn:
     @property
     def has_images(self) -> bool:
         return len(self.images) > 0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "question": self.question,
+            "answer": self.answer,
+            "question_number": self.question_number,
+            "timestamp": self.timestamp.isoformat(),
+            "tool_calls": [tc.to_dict() for tc in self.tool_calls],
+            "images": self.images,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "Turn":
+        return cls(
+            question=data["question"],
+            answer=data.get("answer", ""),
+            question_number=data.get("question_number", 0),
+            timestamp=datetime.fromisoformat(data["timestamp"]) if data.get("timestamp") else datetime.now(),
+            tool_calls=[ToolCallRecord.from_dict(tc) for tc in data.get("tool_calls", [])],
+            images=data.get("images", []),
+        )
 
 
 @dataclass
@@ -65,6 +104,41 @@ class QuestionGroup:
             q = self.turns[0].question.strip()
             return q[:80] + ("…" if len(q) > 80 else "")
         return "MathAssistant Question"
+
+    def to_dict(self, turn_index_map: dict[int, int] | None = None) -> dict[str, Any]:
+        """Serialize to dict. If *turn_index_map* is provided, it maps
+        ``id(turn)`` → index in the session's turn list; the group stores
+        turn indices instead of full turn dicts."""
+        turns_data: list[int] | list[dict]
+        if turn_index_map is not None:
+            turns_data = [turn_index_map[id(t)] for t in self.turns if id(t) in turn_index_map]
+        else:
+            turns_data = [t.to_dict() for t in self.turns]
+        return {
+            "group_id": self.group_id,
+            "topic": self.topic,
+            "turns": turns_data,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any], turns: list[Turn] | None = None) -> "QuestionGroup":
+        """Deserialize. If *turns* is provided and the stored turns are
+        integer indices, resolve indices against that list."""
+        raw_turns = data.get("turns", [])
+        resolved: list[Turn] = []
+        if raw_turns and isinstance(raw_turns[0], int) and turns is not None:
+            resolved = [turns[i] for i in raw_turns if 0 <= i < len(turns)]
+        elif raw_turns and isinstance(raw_turns[0], dict):
+            resolved = [Turn.from_dict(t) for t in raw_turns]
+        return cls(
+            group_id=data.get("group_id", ""),
+            topic=data.get("topic", ""),
+            turns=resolved,
+            created_at=datetime.fromisoformat(data["created_at"]) if data.get("created_at") else datetime.now(),
+            updated_at=datetime.fromisoformat(data["updated_at"]) if data.get("updated_at") else datetime.now(),
+        )
 
 
 @dataclass
@@ -100,6 +174,38 @@ class Session:
             q = self.turns[0].question.strip()
             return q[:80] + ("…" if len(q) > 80 else "")
         return "MathAssistant Session"
+
+    def to_dict(self) -> dict[str, Any]:
+        # Build turn index map for compact group serialization
+        turn_index_map = {id(t): i for i, t in enumerate(self.turns)}
+        return {
+            "version": 1,
+            "session_id": self.session_id,
+            "model": self.model,
+            "created_at": self.created_at.isoformat(),
+            "title": self.title,
+            "question_count": self.question_count,
+            "turns": [t.to_dict() for t in self.turns],
+            "question_groups": [
+                g.to_dict(turn_index_map=turn_index_map)
+                for g in self.question_groups
+            ],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "Session":
+        turns = [Turn.from_dict(t) for t in data.get("turns", [])]
+        groups = [
+            QuestionGroup.from_dict(g, turns=turns)
+            for g in data.get("question_groups", [])
+        ]
+        return cls(
+            session_id=data.get("session_id", ""),
+            model=data.get("model", ""),
+            created_at=datetime.fromisoformat(data["created_at"]) if data.get("created_at") else datetime.now(),
+            turns=turns,
+            question_groups=groups,
+        )
 
 
 class SessionRecorder:
@@ -251,3 +357,37 @@ class SessionRecorder:
         self._text_parts = []
         self._pending_tool_calls = []
         self._current_group = None
+
+
+# ---------------------------------------------------------------------------
+# Top-level JSON serialization helpers
+# ---------------------------------------------------------------------------
+
+def serialize_session(session: Session, path: Path) -> None:
+    """Write a Session to a JSON file.
+
+    Args:
+        session: The session to serialize.
+        path: File path to write (e.g. ``workspace/session.json``).
+    """
+    data = session.to_dict()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # Atomic write: temp file then rename
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2, default=str)
+    tmp_path.replace(path)
+
+
+def deserialize_session(path: Path) -> Session:
+    """Read a Session from a JSON file.
+
+    Args:
+        path: Path to a ``session.json`` file.
+
+    Returns:
+        A reconstructed Session object.
+    """
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    return Session.from_dict(data)
