@@ -20,8 +20,9 @@ from .config import Config
 from .agent import create_math_agent
 from .ui.cli import CLIUI
 from .ui.base import AbstractUI
-from .session.recorder import SessionRecorder
+from .session.recorder import SessionRecorder, serialize_session
 from .session.exporter import MarkdownExporter, HTMLExporter
+from .workspace import WorkspaceManager, WorkspaceContext
 
 
 def parse_args() -> argparse.Namespace:
@@ -79,30 +80,79 @@ def _save_session(
     session_recorder: SessionRecorder,
     config: Config,
     ui: AbstractUI,
+    workspace_ctx: WorkspaceContext | None = None,
+    workspace_mgr: WorkspaceManager | None = None,
 ) -> None:
-    """Save the current session as .md (and optionally .html)."""
+    """Save the current session to workspace and optionally to legacy paths.
+
+    Args:
+        session_recorder: The in-memory session recorder.
+        config: Application configuration.
+        ui: The UI implementation for displaying messages.
+        workspace_ctx: Optional workspace context (if workspaces are enabled).
+        workspace_mgr: Optional workspace manager for updating the index.
+    """
     session = session_recorder.session
     if session.question_count == 0:
         ui.display_error("Nothing to save — the session is empty.")
         return
 
+    # ── Workspace save (primary) ──
+    if workspace_ctx is not None:
+        workspace_ctx.ensure_dirs()
+
+        # Write structured JSON
+        try:
+            serialize_session(session, workspace_ctx.session_json_path)
+        except Exception as e:
+            ui.display_error(f"Failed to write session.json: {e}")
+
+        # Export Markdown into workspace
+        try:
+            md_exporter = MarkdownExporter(output_dir=str(workspace_ctx.workspace_dir))
+            md_path = md_exporter.export(session)
+            ui.display_assistant_message(f"📄 Markdown saved: {md_path}")
+        except Exception as e:
+            ui.display_error(f"Failed to export Markdown: {e}")
+
+        # Export HTML into workspace
+        if config.output.html_export:
+            try:
+                html_exporter = HTMLExporter(
+                    output_dir=str(workspace_ctx.workspace_dir),
+                    image_dir=str(workspace_ctx.images_dir),
+                    embed_images=config.output.embed_images,
+                )
+                html_path = html_exporter.export(session)
+                ui.display_assistant_message(f"🌐 HTML saved: {html_path}")
+            except Exception as e:
+                ui.display_error(f"Failed to export HTML: {e}")
+
+        # Update workspace index
+        if workspace_mgr is not None:
+            try:
+                workspace_mgr.finalize_workspace(workspace_ctx, session)
+            except Exception:
+                pass
+
+    # ── Legacy save_dir (backward compatibility) ──
     save_dir = config.output.save_dir
     image_dir = config.output.image_dir
 
-    # Always export Markdown
-    md_exporter = MarkdownExporter(output_dir=save_dir)
-    md_path = md_exporter.export(session)
-    ui.display_assistant_message(f"📄 Markdown saved: {md_path}")
+    if save_dir and (workspace_ctx is None):
+        # Only write to legacy if no workspace (pure legacy mode)
+        md_exporter = MarkdownExporter(output_dir=save_dir)
+        md_path = md_exporter.export(session)
+        ui.display_assistant_message(f"📄 Markdown saved: {md_path}")
 
-    # Optionally export HTML
-    if config.output.html_export:
-        html_exporter = HTMLExporter(
-            output_dir=save_dir,
-            image_dir=image_dir,
-            embed_images=config.output.embed_images,
-        )
-        html_path = html_exporter.export(session)
-        ui.display_assistant_message(f"🌐 HTML saved: {html_path}")
+        if config.output.html_export:
+            html_exporter = HTMLExporter(
+                output_dir=save_dir,
+                image_dir=image_dir,
+                embed_images=config.output.embed_images,
+            )
+            html_path = html_exporter.export(session)
+            ui.display_assistant_message(f"🌐 HTML saved: {html_path}")
 
 
 def _handle_command(
@@ -112,23 +162,39 @@ def _handle_command(
     ui: AbstractUI,
     backend_client: Optional[Any] = None,
     last_question_id: Optional[int] = None,
+    ws_state: dict | None = None,
 ) -> tuple[bool, Optional[int]]:
     """Handle REPL meta-commands.
 
     Returns (was_handled, new_last_question_id).
     was_handled=True means skip agent processing.
+
+    *ws_state* is a mutable dict with keys ``ctx`` (WorkspaceContext)
+    and ``mgr`` (WorkspaceManager).  The ``:new`` command updates
+    ``ws_state["ctx"]`` in place so the caller can pick up the new
+    workspace context.
     """
+    workspace_ctx = ws_state.get("ctx") if ws_state else None
+    workspace_mgr = ws_state.get("mgr") if ws_state else None
+
     cmd = user_input.strip().lower()
 
     # --- quit commands ---
     if cmd in (":quit", ":exit", ":q", "quit", "exit", "q"):
+        _save_session(session_recorder, config, ui, workspace_ctx, workspace_mgr)
         ui.display_goodbye()
         sys.exit(0)
 
     # --- session reset ---
     if cmd in (":new", ":reset", ":clear", "new", "reset", "clear"):
-        _save_session(session_recorder, config, ui)
+        _save_session(session_recorder, config, ui, workspace_ctx, workspace_mgr)
         session_recorder.new_session()
+        # Create a new workspace for the new session
+        if workspace_mgr is not None:
+            new_ctx = workspace_mgr.create_workspace(model=config.main.model)
+            ws_state["ctx"] = new_ctx
+            # Update recorder's image dir to point at the new workspace
+            session_recorder._image_dir = new_ctx.images_dir
         ui.display_assistant_message(
             "✨ Starting a new conversation! What would you like to explore?"
         )
@@ -136,7 +202,7 @@ def _handle_command(
 
     # --- save commands ---
     if cmd in (":save", ":save md", ":save markdown"):
-        _save_session(session_recorder, config, ui)
+        _save_session(session_recorder, config, ui, workspace_ctx, workspace_mgr)
         return True, last_question_id
 
     if cmd == ":save html":
@@ -144,9 +210,12 @@ def _handle_command(
         if session.question_count == 0:
             ui.display_error("Nothing to export.")
             return True, last_question_id
+        # Prefer workspace for HTML export
+        out_dir = str(workspace_ctx.workspace_dir) if workspace_ctx else config.output.save_dir
+        img_dir = str(workspace_ctx.images_dir) if workspace_ctx else config.output.image_dir
         html_exporter = HTMLExporter(
-            output_dir=config.output.save_dir,
-            image_dir=config.output.image_dir,
+            output_dir=out_dir,
+            image_dir=img_dir,
             embed_images=config.output.embed_images,
         )
         path = html_exporter.export(session)
@@ -154,20 +223,7 @@ def _handle_command(
         return True, last_question_id
 
     if cmd in (":export", ":export html"):
-        session = session_recorder.session
-        if session.question_count == 0:
-            ui.display_error("Nothing to export.")
-            return True, last_question_id
-        md_exporter = MarkdownExporter(output_dir=config.output.save_dir)
-        md_path = md_exporter.export(session)
-        ui.display_assistant_message(f"📄 Markdown: {md_path}")
-        html_exporter = HTMLExporter(
-            output_dir=config.output.save_dir,
-            image_dir=config.output.image_dir,
-            embed_images=config.output.embed_images,
-        )
-        html_path = html_exporter.export(session)
-        ui.display_assistant_message(f"🌐 HTML: {html_path}")
+        _save_session(session_recorder, config, ui, workspace_ctx, workspace_mgr)
         return True, last_question_id
 
     if cmd in (":export md", ":export markdown"):
@@ -175,7 +231,8 @@ def _handle_command(
         if session.question_count == 0:
             ui.display_error("Nothing to export.")
             return True, last_question_id
-        md_exporter = MarkdownExporter(output_dir=config.output.save_dir)
+        out_dir = str(workspace_ctx.workspace_dir) if workspace_ctx else config.output.save_dir
+        md_exporter = MarkdownExporter(output_dir=out_dir)
         path = md_exporter.export(session)
         ui.display_assistant_message(f"📄 Markdown exported: {path}")
         return True, last_question_id
@@ -286,7 +343,6 @@ def _handle_command(
 
 
 def run_repl(
-    agent,
     ui: AbstractUI,
     config: Config,
     backend_client: Optional[Any] = None,
@@ -296,8 +352,10 @@ def run_repl(
     Each conversation turn is associated with a thread_id for
     multi-turn memory via the MemorySaver checkpointer.
 
+    The agent is created inside this function so it can be scoped
+    to the session-specific workspace image directory.
+
     Args:
-        agent: The compiled LangGraph agent.
         ui: The UI implementation.
         config: Application configuration.
         backend_client: Optional MathAssistantBackendClient for
@@ -306,14 +364,27 @@ def run_repl(
     session_id = str(uuid.uuid4())[:8]
     graph_config: dict[str, Any] = {"configurable": {"thread_id": session_id}}
 
-    # Session recorder for export
+    # ── Workspace setup ──
+    workspace_mgr = WorkspaceManager(config.output.workspace_root)
+    workspace_ctx = workspace_mgr.create_workspace(
+        session_id=session_id,
+        model=config.main.model,
+    )
+
+    # Session recorder — scoped to the workspace's images directory
     session_recorder = SessionRecorder(
         model=config.main.model,
-        image_dir=config.output.image_dir,
+        image_dir=str(workspace_ctx.images_dir),
     )
 
     # Track the last submitted question ID for answer recording
     last_question_id: Optional[int] = None
+
+    # Mutable state for workspace switching on :new
+    ws_state: dict = {"ctx": workspace_ctx, "mgr": workspace_mgr}
+
+    # Create a fresh agent with the session-specific image directory
+    agent = create_math_agent(config, image_dir=str(workspace_ctx.images_dir))
 
     ui.display_welcome()
 
@@ -336,9 +407,15 @@ def run_repl(
         # Check for meta-commands (both `:cmd` style and legacy bare words)
         handled, last_question_id = _handle_command(
             user_input, session_recorder, config, ui,
-            backend_client, last_question_id,
+            backend_client, last_question_id, ws_state,
         )
         if handled:
+            # If :new created a new workspace, recreate the agent
+            new_ctx = ws_state.get("ctx")
+            if new_ctx is not None and new_ctx.session_id != session_id:
+                session_id = new_ctx.session_id
+                graph_config = {"configurable": {"thread_id": session_id}}
+                agent = create_math_agent(config, image_dir=str(new_ctx.images_dir))
             continue
 
         # --- Start a new turn ---
@@ -422,13 +499,17 @@ def run_repl(
         # Auto-save if mode is "turn"
         if config.output.save_mode == "turn":
             turn = session_recorder.session.turns[-1]
-            md_exporter = MarkdownExporter(output_dir=config.output.save_dir)
+            ctx = ws_state.get("ctx")
+            out_dir = str(ctx.workspace_dir) if ctx else config.output.save_dir
+            md_exporter = MarkdownExporter(output_dir=out_dir)
             path = md_exporter.export_turn(turn, session_recorder.session)
             ui.display_assistant_message(f"📄 Turn saved: {path}")
 
     # --- Exit: auto-save session ---
     if config.output.save_mode == "session":
-        _save_session(session_recorder, config, ui)
+        ctx = ws_state.get("ctx")
+        mgr = ws_state.get("mgr")
+        _save_session(session_recorder, config, ui, ctx, mgr)
 
 
 def main():
@@ -449,9 +530,6 @@ def main():
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
-
-    # Create the agent
-    agent = create_math_agent(config)
 
     # Create the UI
     ui = CLIUI()
@@ -491,8 +569,8 @@ def main():
             ui.display_error(f"Failed to connect to backend: {e}")
             backend_client = None
 
-    # Run the REPL
-    run_repl(agent, ui, config, backend_client)
+    # Run the REPL (agent is created inside with workspace-specific settings)
+    run_repl(ui, config, backend_client)
 
 
 if __name__ == "__main__":
