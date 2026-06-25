@@ -181,9 +181,9 @@ def auto_tag_question(question_id: int, db: Session):
         api_key = main_config.get_api_key()
 
         llm = ChatOpenAI(
-            model=main_config.model.name,
+            model=main_config.main.model,
             api_key=api_key,
-            base_url=main_config.api.base_url,
+            base_url=main_config.main.base_url,
             temperature=0.0,
         )
 

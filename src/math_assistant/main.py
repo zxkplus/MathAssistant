@@ -308,7 +308,7 @@ def run_repl(
 
     # Session recorder for export
     session_recorder = SessionRecorder(
-        model=config.model.name,
+        model=config.main.model,
         image_dir=config.output.image_dir,
     )
 
@@ -439,9 +439,9 @@ def main():
 
     # Apply CLI overrides
     if args.api_key:
-        config.api.api_key = args.api_key
+        config.main.api_key = args.api_key
     if args.model:
-        config.model.name = args.model
+        config.main.model = args.model
 
     # Validate API key
     try:

@@ -273,18 +273,11 @@ def _extract_text_from_image(image_path: str, config: Config) -> str:
     try:
         from math_assistant.vision_providers import get_vision_provider
 
-        # Fall back to main API key if vision-specific key is not set
-        vision_api_key = config.vision.api_key
-        if vision_api_key is None:
-            try:
-                vision_api_key = config.get_api_key()
-            except ValueError:
-                pass  # will be handled by the provider's own fallback
-
+        # Vision profile is independent — uses its own api_key (e.g. Kimi)
         provider = get_vision_provider(
-            config.vision.provider,
+            "openai",  # Kimi/GPT-4V/Gemini are all OpenAI-compatible
             model=config.vision.model,
-            api_key=vision_api_key,
+            api_key=config.vision.api_key,
             base_url=config.vision.base_url,
         )
         result = provider.image_to_text(str(image_path))

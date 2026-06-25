@@ -1,25 +1,37 @@
-model:
-  provider: deepseek
-  name: deepseek-chat
-  temperature: 0.0
-
-api:
+# ── LLM Profile: 主 Agent（数学对话）────────────────────────────────────
+# 每个 profile 自包含 model + base_url + api_key，互不干扰。
+# api_key 写在 config.local.yaml（gitignored）中，不要提交到这里。
+main:
+  model: deepseek-chat
   base_url: "https://api.deepseek.com"
-  # api_key: set in config.local.yaml (gitignored) or via environment variable
-  # (DEEPSEEK_API_KEY / MATH_ASSISTANT_API_KEY / OPENAI_API_KEY)
-  # Create config.local.yaml next to this file:
-  #   api:
-  #     api_key: "sk-xxx"
+  temperature: 0.0
+  # config.local.yaml 示例:
+  #   main:
+  #     api_key: "sk-deepseek-xxx"
+
+# ── LLM Profile: Vision/OCR（图片识别）──────────────────────────────────
+# 使用 Kimi (Moonshot) 的视觉模型识别图片中的数学题目。
+# Kimi 兼容 OpenAI 协议，通过 OpenAIVisionProvider 调用。
+# 如需使用其他视觉模型（如 GPT-4o, Gemini），修改 model 和 base_url 即可。
+vision:
+  model: moonshot-v1-8k-vision     # Kimi 视觉模型
+  base_url: "https://api.moonshot.cn/v1"
+  # config.local.yaml 示例:
+  #   vision:
+  #     api_key: "sk-kimi-xxx"
+
+# ── 扩展指南 ────────────────────────────────────────────────────────────
+# 后续新增子 Agent（如 tagging、grading 等），只需在下面添加新的 profile：
+#
+#   tagging:
+#     model: qwen-plus
+#     base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+#     # api_key 写 config.local.yaml
+#
+# 代码中使用: config.tagging.create_chat_openai("tagging") 或直接取字段。
 
 search:
   provider: duckduckgo
-
-vision:
-  provider: openai
-  model: gpt-4o
-  base_url: "https://api.openai.com/v1"
-  # api_key: set in config.local.yaml or via environment variable
-  # (same key resolution as the main api.api_key: DEEPSEEK_API_KEY / MATH_ASSISTANT_API_KEY / OPENAI_API_KEY)
 
 python_executor:
   timeout_seconds: 30
