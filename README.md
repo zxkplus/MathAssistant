@@ -38,7 +38,10 @@ MathAssistant 是一个由大语言模型驱动的智能数学教学系统，提
 - **符号计算**：通过 SymPy 求解方程、求导、积分、极限、矩阵运算等
 - **数值计算**：利用 NumPy 进行数值分析和统计
 - **图表生成**：通过 Matplotlib 生成函数图像，支持终端内嵌显示（Kitty / iTerm2）
-- **联网搜索**：自动检索数学定理、定义和历史背景
+- **联网搜索**：自动检索数学定理、定义和历史背景（支持百度AI搜索 / 博查 / DuckDuckGo）
+- **学术论文检索**：通过 Semantic Scholar + DeepXiv（智源BAAI）搜索数学研究论文
+- **图片识别**：支持上传含数学题的图片，自动 OCR 识别题目文字
+- **工作区管理**：每个会话独立目录（含 JSON / Markdown / HTML / 图片），自动索引
 - **会话记录**：自动导出 Markdown 或自包含 HTML（支持 KaTeX 数学公式渲染）
 - **多轮对话**：基于 LangGraph 的状态图维护上下文记忆
 
@@ -85,7 +88,7 @@ MathAssistant 是一个由大语言模型驱动的智能数学教学系统，提
 │  │ Agent         │ │  │  - Auth / Questions / KPs              │  │
 │  │ - System      │ │  │  - Analytics / Tags                    │  │
 │  │   Prompt      │ │  │                                        │  │
-│  │ - 2 Tools     │ │  │  Services:                             │  │
+│  │ - 4 Tools     │ │  │  Services:                             │  │
 │  │ - Middleware  │ │  │  - TaggingService (LLM)                │  │
 │  │ - MemorySaver │ │  │  - AnalyticsEngine                     │  │
 │  └───────┬───────┘ │  │  - AuthService (bcrypt+JWT)            │  │
@@ -96,6 +99,8 @@ MathAssistant 是一个由大语言模型驱动的智能数学教学系统，提
 │  │  Tools        │ │  │  SQLAlchemy ORM                        │  │
 │  │  - python     │ │  │  - SQLite (单文件)                      │  │
 │  │  - search     │ │  │  - 7 Models                            │  │
+│  │  - OCR        │ │  │                                        │  │
+│  │  - papers     │ │  │                                        │  │
 │  └───────┬───────┘ │  └────────────────────────────────────────┘  │
 │          │         │                                               │
 │  ┌───────▼───────┐ │                                               │
@@ -109,10 +114,11 @@ MathAssistant 是一个由大语言模型驱动的智能数学教学系统，提
 **数据流概要**：
 
 1. 用户输入 → CLI / Streamlit / Swagger → 如果是数学问题则提交给 Agent
-2. Agent (LangGraph) 调用 LLM (DeepSeek)，LLM 可决定调用工具（Python 执行 / 网络搜索）
+2. Agent (LangGraph) 调用 LLM (DeepSeek)，LLM 可决定调用工具（Python 执行 / 网络搜索 / OCR 识别 / 学术论文检索）
 3. 工具结果返回 LLM，生成最终回答
-4. 会话记录器 (`SessionRecorder`) 累积问答 → 导出为 Markdown / HTML
-5. （可选）CLI / Web 前端通过 `cli_client.py` 将问题提交给后端 → 后端触发 LLM 自动标注 → 用户反馈正确/错误 → 掌握度更新
+4. 会话录制器 (`SessionRecorder`) 累积问答 → 序列化为 `session.json` → 导出为 Markdown / HTML
+5. 工作区管理器 (`WorkspaceManager`) 为每个会话创建独立目录（含图片、导出文件），维护 `index.json` 索引
+6. （可选）CLI / Web 前端通过 `cli_client.py` 将问题提交给后端 → 后端触发 LLM 自动标注 → 用户反馈正确/错误 → 掌握度更新
 
 ---
 
@@ -224,7 +230,10 @@ api:
   base_url: "https://api.deepseek.com"
 
 search:
-  provider: duckduckgo        # 搜索后端（可插拔，目前仅支持 duckduckgo）
+  provider: baidu             # 搜索后端：baidu / bocha / duckduckgo
+  baidu_api_key: ""           # 百度AI搜索 API Key（免费 100 次/天）
+  bocha_api_key: ""           # 博查AI搜索 API Key（免费 2000 次注册即得）
+  academic_search: true       # 是否启学术论文检索（Semantic Scholar，免费无需 Key）
 
 python_executor:
   timeout_seconds: 30         # Python 代码执行超时（1 ~ 120 秒）
@@ -233,9 +242,10 @@ agent:
   max_tool_calls: 20          # 每轮最多工具调用次数（1 ~ 100）
 
 output:
-  image_dir: "./images"       # 图表保存目录
+  workspace_root: "./workspaces"  # 工作区根目录（每个会话独立子目录）
+  image_dir: "./images"       # 图表保存目录（遗留兼容）
   save_mode: "session"        # 保存模式：session（退出时）/ turn（逐轮）/ manual（手动）
-  save_dir: "./sessions"      # 会话导出目录
+  save_dir: "./sessions"      # 会话导出目录（遗留兼容）
   html_export: true           # 是否同时导出自包含 HTML
   embed_images: true          # HTML 中内嵌 base64 图片
 ```
@@ -308,12 +318,39 @@ Agent 会在需要计算、求解或绘图时自动生成并执行 Python 代码
 - 可配置超时（默认 30 秒）
 - 临时文件自动清理
 - Matplotlib Agg 后端（无 GUI 依赖）
+- 自动检测并配置中文字体（CJK 字体回退）
+- 自动为裸表达式添加 `print()` 包装
+- 脚本在工作区目录下运行，图片自动归入会话目录
 
 #### `web_search` — 网络搜索
 
-Agent 自动通过 DuckDuckGo 搜索数学定理、定义或参考资料。搜索结果会标注来源 URL。
+Agent 自动通过搜索引擎检索数学定理、定义或参考资料。搜索结果会标注来源 URL。
 
 **可插拔架构**：通过继承 `BaseSearchProvider` 并注册到 `PROVIDER_REGISTRY` 即可添加新的搜索后端。
+
+**当前支持的搜索后端**：
+
+| 后端 | 标识 | 说明 |
+|------|------|------|
+| 百度AI搜索 | `baidu` | 国内可访问，免费 100 次/天 |
+| 博查AI搜索 | `bocha` | 国内可访问，注册即得 2000 次 |
+| DuckDuckGo | `duckduckgo` | 免费但国内需 VPN |
+
+#### `image_to_text` — 图片 OCR 识别
+
+上传含数学题的图片，Agent 通过独立的 Vision LLM（默认 Kimi/Moonshot）提取题目文字，然后正常解答。
+
+**使用方式**：在 CLI 中输入图片路径，或在 Web 前端上传图片即可。
+
+#### `search_papers` — 学术论文检索
+
+Agent 在需要权威数学参考文献时自动搜索学术论文数据库。
+
+**数据源**：
+- **Semantic Scholar** — 免费，无需 API Key，覆盖海量学术论文
+- **DeepXiv（智源BAAI）** — 国内友好访问，作为备选回退
+
+返回内容包括论文标题、作者、年份、摘要和 URL。可通过 `search.academic_search: false` 关闭此工具。
 
 ---
 
@@ -586,8 +623,9 @@ MathAssistant/
 ├── server.yaml                  # 后端服务配置
 ├── pyproject.toml               # 项目元数据 + 依赖
 ├── run.py                       # 便捷启动脚本（Windows UTF-8 修复）
-├── images/                      # 生成的图表保存目录
-├── sessions/                    # 会话导出目录
+├── workspaces/                  # 工作区根目录（每个会话独立子目录）
+├── images/                      # 生成的图表保存目录（遗留兼容）
+├── sessions/                    # 会话导出目录（遗留兼容）
 │
 └── src/math_assistant/
     ├── __init__.py
@@ -598,11 +636,15 @@ MathAssistant/
     │
     ├── tools/                   # Agent 工具
     │   ├── python_executor.py   # Python 代码隔离执行
-    │   └── search.py            # 网络搜索工具
+    │   ├── search.py            # 网络搜索工具
+    │   ├── image_to_text.py     # 图片 OCR 识别工具
+    │   └── academic_search.py   # 学术论文检索工具
     │
     ├── search_providers/        # 搜索后端（可插拔）
     │   ├── base.py              # BaseSearchProvider 抽象类
-    │   └── duckduckgo.py        # DuckDuckGo 实现
+    │   ├── duckduckgo.py        # DuckDuckGo 实现
+    │   ├── baidu.py             # 百度AI搜索实现
+    │   └── bocha.py             # 博查AI搜索实现
     │
     ├── ui/                      # 用户界面层
     │   ├── base.py              # AbstractUI 抽象类
@@ -610,8 +652,12 @@ MathAssistant/
     │   └── renderer.py          # 数学公式 Unicode 渲染
     │
     ├── session/                 # 会话录制与导出
-    │   ├── recorder.py          # Session / Turn / ToolCallRecord 数据模型
+    │   ├── recorder.py          # Session / Turn / QuestionGroup / ToolCallRecord
     │   └── exporter.py          # Markdown + HTML 导出器（支持 KaTeX）
+    │
+    ├── workspace/               # 工作区管理
+    │   ├── manager.py           # WorkspaceManager + WorkspaceContext
+    │   └── index.py             # WorkspaceIndex（JSON 索引 + 文件锁）
     │
     ├── frontend/                # 🌐 Streamlit Web 前端
     │   ├── app.py              # 主入口 + 页面路由
@@ -716,6 +762,9 @@ MathAssistant/
 2. 实现 `search(query, max_results)` 和 `name()` 方法
 3. 在 `src/math_assistant/search_providers/__init__.py` 的 `PROVIDER_REGISTRY` 中注册
 4. 在 `config.yaml` 中设置 `search.provider` 为你注册的名称
+5. 如需 API Key，在 `config.yaml` 和 `config.py` 中添加相应字段
+
+**示例**：参考现有的 `baidu.py`（百度AI搜索，使用 QianFan API）或 `bocha.py`（博查AI搜索）。
 
 ### 添加新的 UI 前端
 
@@ -752,14 +801,29 @@ CONFIDENCE_THRESHOLD = 20    # 调整置信度阈值
 
 | 环境变量 | 对应配置 |
 |----------|----------|
-| `MATH_ASSISTANT_API_KEY` | `api.api_key` |
-| `DEEPSEEK_API_KEY` | `api.api_key` |
-| `OPENAI_API_KEY` | `api.api_key` |
-| `MATH_ASSISTANT_MODEL` | `model.name` |
-| `MATH_ASSISTANT_TEMPERATURE` | `model.temperature` |
+| `MATH_ASSISTANT_API_KEY` | `main.api_key`（主 Agent） |
+| `DEEPSEEK_API_KEY` | `main.api_key` |
+| `OPENAI_API_KEY` | `main.api_key` |
+| `MATH_ASSISTANT_MODEL` | `main.model` |
+| `MATH_ASSISTANT_TEMPERATURE` | `main.temperature` |
+| `MATH_ASSISTANT_BASE_URL` | `main.base_url` |
+| `KIMI_API_KEY` | `vision.api_key`（图片识别） |
+| `MOONSHOT_API_KEY` | `vision.api_key` |
+| `MATH_ASSISTANT_VISION_MODEL` | `vision.model` |
+| `MATH_ASSISTANT_VISION_API_KEY` | `vision.api_key` |
+| `MATH_ASSISTANT_VISION_BASE_URL` | `vision.base_url` |
 | `MATH_ASSISTANT_SEARCH_PROVIDER` | `search.provider` |
+| `MATH_ASSISTANT_BAIDU_API_KEY` | `search.baidu_api_key` |
+| `MATH_ASSISTANT_BOCHA_API_KEY` | `search.bocha_api_key` |
+| `MATH_ASSISTANT_ACADEMIC_SEARCH` | `search.academic_search` |
 | `MATH_ASSISTANT_PYTHON_TIMEOUT` | `python_executor.timeout_seconds` |
 | `MATH_ASSISTANT_MAX_TOOL_CALLS` | `agent.max_tool_calls` |
+| `MATH_ASSISTANT_IMAGE_DIR` | `output.image_dir` |
+| `MATH_ASSISTANT_WORKSPACE_ROOT` | `output.workspace_root` |
+| `MATH_ASSISTANT_SAVE_MODE` | `output.save_mode` |
+| `MATH_ASSISTANT_SAVE_DIR` | `output.save_dir` |
+| `MATH_ASSISTANT_HTML_EXPORT` | `output.html_export` |
+| `MATH_ASSISTANT_EMBED_IMAGES` | `output.embed_images` |
 | `MATH_ASSISTANT_SERVER_PORT` | 后端服务端口 |
 | `MATH_ASSISTANT_DB_URL` | 后端数据库 URL |
 | `MATH_ASSISTANT_SECRET_KEY` | JWT 密钥 |
