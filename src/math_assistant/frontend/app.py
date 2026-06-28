@@ -6,26 +6,41 @@ Usage:
 Requires the FastAPI backend to be running for auth, persistence,
 auto-tagging, and analytics. The agent (LLM + tools) runs directly
 in this process via create_math_agent().
-"""
 
-import sys
+Design: "数学花园" (Mathematical Garden) — warm, vibrant, organic.
+"""
 
 import streamlit as st
 
 # Page config must be the first Streamlit call
 st.set_page_config(
-    page_title="MathAssistant",
+    page_title="MathAssistant · 数学花园",
     page_icon="🧮",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
 from math_assistant.config import Config
-from math_assistant.workspace import WorkspaceManager, WorkspaceContext
+from math_assistant.workspace import WorkspaceManager
 from math_assistant.frontend import session_store as store
 from math_assistant.frontend.auth_page import render_auth_page
 from math_assistant.frontend.chat_page import render_chat_page
 from math_assistant.frontend.sidebar import render_sidebar
+from math_assistant.frontend.styles import get_global_css
+
+
+def _inject_global_styles() -> None:
+    """Inject the MathAssistant design-system CSS into the Streamlit app.
+
+    Only runs once per session — guarded by a session_state flag.
+    """
+    if "_ma_styles_injected" in st.session_state:
+        return
+    st.markdown(
+        f"<style>{get_global_css()}</style>",
+        unsafe_allow_html=True,
+    )
+    st.session_state["_ma_styles_injected"] = True
 
 
 def _load_config() -> Config:
@@ -75,6 +90,9 @@ def main() -> None:
     """Main app entry point. Routes between auth page and chat page."""
     # Initialize session state
     store.init_session_state()
+
+    # Inject design-system CSS (once per session)
+    _inject_global_styles()
 
     # Load config
     config = _load_config()
