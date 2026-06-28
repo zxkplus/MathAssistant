@@ -33,6 +33,8 @@ class Keys:
     # ── Workspace keys ──
     WORKSPACE_CTX = "workspace_ctx"
     WORKSPACE_MGR = "workspace_mgr"
+    # ── Summary tab ──
+    LATEST_SUMMARY_HTML = "latest_summary_html"
 
 
 # ── Initialization ────────────────────────────────────
@@ -162,6 +164,7 @@ def new_conversation() -> None:
     # Reset save-related state
     st.session_state[Keys.QUESTION_GROUP_ID] = None
     st.session_state[Keys.CURRENT_TOPIC] = None
+    st.session_state[Keys.LATEST_SUMMARY_HTML] = None
     if Keys.SAVE_MANAGER in st.session_state and st.session_state[Keys.SAVE_MANAGER] is not None:
         st.session_state[Keys.SAVE_MANAGER].reset()
     # Create a new workspace for the new conversation
@@ -196,3 +199,15 @@ def get_workspace_mgr() -> Optional["WorkspaceManager"]:
 def set_workspace_mgr(mgr: "WorkspaceManager") -> None:
     """Set the workspace manager in session state."""
     st.session_state[Keys.WORKSPACE_MGR] = mgr
+
+
+# ── Summary HTML tracking ─────────────────────────────
+
+def get_latest_summary_html() -> Optional[str]:
+    """Get the path to the latest saved summary HTML file."""
+    return st.session_state.get(Keys.LATEST_SUMMARY_HTML)
+
+
+def set_latest_summary_html(path: Optional[str]) -> None:
+    """Set the path to the latest saved summary HTML file."""
+    st.session_state[Keys.LATEST_SUMMARY_HTML] = path
